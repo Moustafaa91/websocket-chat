@@ -1,0 +1,41 @@
+# ─── Go (backend) ────────────────────────────────────────────
+# Binaries
+backend/bin/
+backend/*.exe
+backend/*.exe~
+backend/*.dll
+backend/*.so
+backend/*.dylib
+
+# Test artifacts
+backend/*.test
+backend/*.out
+
+# Dependency cache (not needed in repo — go.sum is enough)
+backend/vendor/
+
+# Build output
+backend/tmp/
+
+# ─── Node / React (frontend) ─────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.cache/
+frontend/.parcel-cache/
+
+# Local env files — never commit secrets
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# ─── Editor & OS ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ─── Misc ────────────────────────────────────────────────────
+*.log
