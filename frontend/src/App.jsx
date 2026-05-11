@@ -1,6 +1,6 @@
 import ChatBox from './ChatBox'
 import EventLog from './EventLog'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import './App.css'
 
 const getInitialTheme = () => {
@@ -21,9 +21,13 @@ export default function App() {
     window.localStorage.setItem('theme', theme)
   }, [theme])
 
+
+  const counterRef = useRef(0)
+
   const addEvent = useCallback((message, type = 'info') => {
+    const id = counterRef.current++
     setEvents(prev => {
-      const next = [...prev, { message, type, id: Date.now() + Math.random() }]
+      const next = [...prev, { message, type, time: Date.now(), id }]
       return next.length > 50 ? next.slice(next.length - 50) : next
     })
   }, [])

@@ -17,7 +17,8 @@
   --warn:      #fbbf24;
   --error:     #f87171;
   --info:      #94a3b8;
-
+  --button-txt: #e2e8f0;
+  --button-bg:  #38bdf8;
   --radius:    10px;
   --mono:      'JetBrains Mono', monospace;
   --display:   'Syne', sans-serif;
@@ -40,6 +41,8 @@ body {
   --text:      #0f172a;
   --muted:     #475569;
   --accent:    #2563eb;
+  --button-txt: #f8fafc;
+  --button-bg:  #2563eb;
 
   --success:   #16a34a;
   --warn:      #d97706;
@@ -229,8 +232,8 @@ body {
 }
 
 .chatbox-send {
-  background: var(--accent);
-  color: #0d0f12;
+  background: var(--button-bg);
+  color: var(--button-txt);
   border: none;
   border-radius: 6px;
   padding: 0.5rem 1rem;
