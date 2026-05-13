@@ -136,6 +136,7 @@ body {
 
 .chatbox--connected  { border-color: var(--success); }
 .chatbox--reconnecting { border-color: var(--warn); }
+.chatbox--waking { border-color: var(--warn); }
 .chatbox--disconnected { border-color: var(--border); }
 
 .chatbox-header {
@@ -161,6 +162,7 @@ body {
 .chatbox-status--connected    { color: var(--success); }
 .chatbox-status--disconnected { color: var(--muted); }
 .chatbox-status--reconnecting { color: var(--warn); }
+.chatbox-status--waking { color: var(--warn); }
 
 .chatbox-messages {
   flex: 1;
