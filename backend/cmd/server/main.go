@@ -5,6 +5,7 @@ import (
 	"backend/internal/event"
 	"backend/internal/hub"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -25,12 +26,6 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// For this POC, validUsers is the fixed set of users.
-var validUsers = map[string]bool{
-	"alex": true,
-	"bob":  true,
-}
-
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -43,13 +38,11 @@ func main() {
 	defer cancel()
 
 	go h.Run(ctx)
-
-	// eventFanout consumes Hub events and delivers them to all currently clients via their Send channels
-	// WritePump is the sole writer to each WebSocket connection, so this never races.
 	go eventFanout(ctx, h)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", wsHandler(ctx, h))
+	mux.HandleFunc("/rooms", corsMiddleware(roomsHandler(h)))
+	mux.HandleFunc("/ws", corsMiddleware(wsHandler(ctx, h)))
 	mux.HandleFunc("/health", healthHandler)
 
 	srv := &http.Server{
@@ -69,7 +62,6 @@ func main() {
 
 	<-quit
 	log.Println("shutdown signal received")
-
 	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
@@ -78,38 +70,51 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("server shutdown error: %v", err)
 	}
-
 	log.Println("server stopped")
 }
 
-// eventFanout reads events from the Hub and delivers them to every registered client's Send channel. Because WritePump is the sole writer to each conn,
-// routing through Send eliminates the concurrent-write race entirely.
-func eventFanout(ctx context.Context, h *hub.Hub) {
-	for {
-		select {
-		case <-ctx.Done():
+// roomsHandler handles POST /rooms.
+// Reserves a room code and returns it. The frontend then opens a WebSocket
+// with ?room=<code>&player=1 to activate the room.
+func roomsHandler(h *hub.Hub) http.HandlerFunc {
+	type response struct {
+		Code string `json:"code"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
-		case e := <-h.Events:
-			h.BroadcastEvent(e)
 		}
+		code, err := h.ReserveCode()
+		if err != nil {
+			http.Error(w, "could not create room", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response{Code: code})
 	}
 }
 
+// wsHandler handles GET /ws?room=<code>&player=1|2
 func wsHandler(ctx context.Context, h *hub.Hub) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userName := r.URL.Query().Get("user")
-		if !validUsers[userName] {
-			http.Error(w, "invalid user", http.StatusBadRequest)
+		code := r.URL.Query().Get("room")
+		playerNum := r.URL.Query().Get("player")
+
+		if code == "" || (playerNum != "1" && playerNum != "2") {
+			http.Error(w, "missing or invalid room/player param", http.StatusBadRequest)
 			return
 		}
+
+		name := "Player " + playerNum
 
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Printf("websocket upgrade error for %s: %v", userName, err)
+			log.Printf("websocket upgrade error: %v", err)
 			return
 		}
 
-		c := client.NewClient(userName)
+		c := client.NewClient(name, code)
 
 		emitEvent := func(level, msg string) {
 			e := event.New(event.Level(level), msg)
@@ -119,10 +124,52 @@ func wsHandler(ctx context.Context, h *hub.Hub) http.HandlerFunc {
 			}
 		}
 
-		h.Register(c)
+		// Register with the Hub before starting pumps.
+		if playerNum == "1" {
+			if err := h.CreateRoom(c, code); err != nil {
+				log.Printf("CreateRoom error for %s: %v", code, err)
+				_ = conn.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, err.Error()))
+				conn.Close()
+				return
+			}
+		} else {
+			if err := h.JoinRoom(c, code); err != nil {
+				log.Printf("JoinRoom error for %s: %v", code, err)
+				_ = conn.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, err.Error()))
+				conn.Close()
+				return
+			}
+		}
 
 		go c.WritePump(ctx, conn, emitEvent)
 		c.ReadPump(ctx, conn, h, emitEvent)
+	}
+}
+
+// eventFanout delivers Hub events to all connected players.
+func eventFanout(ctx context.Context, h *hub.Hub) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e := <-h.Events:
+			h.BroadcastEventAll(e)
+		}
+	}
+}
+
+func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next(w, r)
 	}
 }
 

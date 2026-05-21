@@ -12,7 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// ── Mock WebSocket connection ─────────────────────────────────────────────────
+// ── Mock WebSocket ────────────────────────────────────────────────────────────
 
 type mockConn struct {
 	mu       sync.Mutex
@@ -51,14 +51,14 @@ func (m *mockConn) WriteJSON(v any) error {
 	return nil
 }
 
-func (m *mockConn) WriteMessage(messageType int, data []byte) error {
+func (m *mockConn) WriteMessage(_ int, _ []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.closed = true
 	return nil
 }
 
-func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }
+func (m *mockConn) SetWriteDeadline(_ time.Time) error { return nil }
 
 func (m *mockConn) Close() error {
 	m.mu.Lock()
@@ -81,9 +81,9 @@ func (m *mockConn) getWritten() []interface{} {
 // ── Mock Hub ──────────────────────────────────────────────────────────────────
 
 type mockHub struct {
-	mu           sync.Mutex
-	sent         []message.Message
-	unregistered []string
+	mu   sync.Mutex
+	sent []message.Message
+	left []string // name+code pairs recorded as "name:code"
 }
 
 func (h *mockHub) Send(m message.Message) {
@@ -92,10 +92,10 @@ func (h *mockHub) Send(m message.Message) {
 	h.sent = append(h.sent, m)
 }
 
-func (h *mockHub) Unregister(name string) {
+func (h *mockHub) LeaveRoom(name, code string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.unregistered = append(h.unregistered, name)
+	h.left = append(h.left, name+":"+code)
 }
 
 func (h *mockHub) getSent() []message.Message {
@@ -106,11 +106,11 @@ func (h *mockHub) getSent() []message.Message {
 	return out
 }
 
-func (h *mockHub) getUnregistered() []string {
+func (h *mockHub) getLeft() []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	out := make([]string, len(h.unregistered))
-	copy(out, h.unregistered)
+	out := make([]string, len(h.left))
+	copy(out, h.left)
 	return out
 }
 
@@ -132,42 +132,12 @@ func marshalMsg(t *testing.T, m message.Message) []byte {
 func TestReadPumpForwardsMessageToHub(t *testing.T) {
 	conn := &mockConn{}
 	hub := &mockHub{}
-	c := NewClient("alex")
+	c := NewClient("Player 1", "ABC123")
 
 	conn.incoming = [][]byte{
-		marshalMsg(t, message.Message{From: "alex", To: "bob", Text: "hello", TS: 1}),
+		marshalMsg(t, message.Message{From: "Player 1", Text: "hello", TS: 1}),
 	}
-	conn.closeErr = errors.New("connection closed")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	c.ReadPump(ctx, conn, hub, nopEvent)
-
-	sent := hub.getSent()
-	if len(sent) != 1 {
-		t.Fatalf("expected 1 message sent to hub, got %d", len(sent))
-	}
-	if sent[0].From != "alex" {
-		t.Errorf("expected From='alex', got %q", sent[0].From)
-	}
-	if sent[0].To != "bob" {
-		t.Errorf("expected To='bob', got %q", sent[0].To)
-	}
-	if sent[0].Text != "hello" {
-		t.Errorf("unexpected text: %q", sent[0].Text)
-	}
-}
-
-func TestReadPumpEnforcesSenderIdentity(t *testing.T) {
-	conn := &mockConn{}
-	hub := &mockHub{}
-	c := NewClient("bob")
-
-	conn.incoming = [][]byte{
-		marshalMsg(t, message.Message{From: "alex", To: "bob", Text: "spoofed", TS: 1}),
-	}
-	conn.closeErr = errors.New("eof")
+	conn.closeErr = errors.New("closed")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -178,56 +148,84 @@ func TestReadPumpEnforcesSenderIdentity(t *testing.T) {
 	if len(sent) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(sent))
 	}
-	if sent[0].From != "bob" {
-		t.Errorf("expected From enforced as 'bob', got %q", sent[0].From)
+	if sent[0].From != "Player 1" {
+		t.Errorf("expected From='Player 1', got %q", sent[0].From)
+	}
+	if sent[0].Room != "ABC123" {
+		t.Errorf("expected Room='ABC123', got %q", sent[0].Room)
+	}
+	if sent[0].Text != "hello" {
+		t.Errorf("unexpected text: %q", sent[0].Text)
 	}
 }
 
-func TestReadPumpCallsUnregisterOnClose(t *testing.T) {
-	conn := &mockConn{closeErr: errors.New("connection reset")}
+func TestReadPumpEnforcesRoomCode(t *testing.T) {
+	conn := &mockConn{}
 	hub := &mockHub{}
-	c := NewClient("alex")
+	c := NewClient("Player 1", "ABC123")
+
+	// Client tries to spoof a different room code.
+	conn.incoming = [][]byte{
+		marshalMsg(t, message.Message{From: "Player 1", Room: "HACKED", Text: "spoof"}),
+	}
+	conn.closeErr = errors.New("closed")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	c.ReadPump(ctx, conn, hub, nopEvent)
 
-	unregistered := hub.getUnregistered()
-	if len(unregistered) != 1 || unregistered[0] != "alex" {
-		t.Errorf("expected Unregister('alex'), got %v", unregistered)
+	sent := hub.getSent()
+	if len(sent) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(sent))
+	}
+	if sent[0].Room != "ABC123" {
+		t.Errorf("expected Room enforced as 'ABC123', got %q", sent[0].Room)
+	}
+}
+
+func TestReadPumpCallsLeaveRoomOnClose(t *testing.T) {
+	conn := &mockConn{closeErr: errors.New("connection reset")}
+	hub := &mockHub{}
+	c := NewClient("Player 1", "ABC123")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	c.ReadPump(ctx, conn, hub, nopEvent)
+
+	left := hub.getLeft()
+	if len(left) != 1 || left[0] != "Player 1:ABC123" {
+		t.Errorf("expected LeaveRoom('Player 1', 'ABC123'), got %v", left)
 	}
 }
 
 func TestWritePumpDeliversMessage(t *testing.T) {
 	conn := &mockConn{}
-	c := NewClient("bob")
+	c := NewClient("Player 2", "ABC123")
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	go func() {
-		c.Send <- Outbound{Kind: OutboundMessage, Message: message.Message{From: "alex", To: "bob", Text: "delivered", TS: 1}}
+		c.Send <- Outbound{Kind: OutboundMessage, Message: message.Message{Text: "delivered"}}
 		time.Sleep(50 * time.Millisecond)
 		cancel()
 	}()
 
 	c.WritePump(ctx, conn, nopEvent)
 
-	written := conn.getWritten()
-	if len(written) != 1 {
-		t.Fatalf("expected 1 message written to conn, got %d", len(written))
+	if len(conn.getWritten()) != 1 {
+		t.Fatalf("expected 1 write, got %d", len(conn.getWritten()))
 	}
 }
 
 func TestWritePumpExitsOnChannelClose(t *testing.T) {
 	conn := &mockConn{}
-	c := NewClient("alex")
-
-	ctx := context.Background()
+	c := NewClient("Player 1", "ABC123")
 	done := make(chan struct{})
 
 	go func() {
-		c.WritePump(ctx, conn, nopEvent)
+		c.WritePump(context.Background(), conn, nopEvent)
 		close(done)
 	}()
 
@@ -236,14 +234,13 @@ func TestWritePumpExitsOnChannelClose(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("WritePump did not exit after Send channel closed")
+		t.Fatal("WritePump did not exit after Send closed")
 	}
 }
 
 func TestWritePumpExitsOnContextCancel(t *testing.T) {
 	conn := &mockConn{}
-	c := NewClient("alex")
-
+	c := NewClient("Player 1", "ABC123")
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 
@@ -257,15 +254,6 @@ func TestWritePumpExitsOnContextCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("WritePump did not exit after context cancellation")
-	}
-}
-
-func TestOtherUser(t *testing.T) {
-	if got := otherUser("alex"); got != "bob" {
-		t.Errorf("otherUser('alex') = %q, want 'bob'", got)
-	}
-	if got := otherUser("bob"); got != "alex" {
-		t.Errorf("otherUser('bob') = %q, want 'alex'", got)
+		t.Fatal("WritePump did not exit after context cancel")
 	}
 }

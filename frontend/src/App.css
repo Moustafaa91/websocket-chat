@@ -67,6 +67,19 @@ body {
   min-height: 0;
 }
 
+.app-main--split {
+  grid-template-columns: 1fr 320px;
+  align-items: start;
+}
+
+.app-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 420px;
+}
+
 /* ── Header ────────────────────────────────────────────────── */
 .app-header {
   display: flex;
@@ -123,6 +136,114 @@ body {
   opacity: 0.85;
 }
 
+/* ── Home screen ────────────────────────────────────────────────────────────── */
+.home-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 2rem 0;
+}
+
+.home-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2rem;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.home-title {
+  font-family: var(--display);
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+.home-desc {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.home-create {
+  width: 100%;
+}
+
+.home-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.home-divider::before,
+.home-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.home-join {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.home-error {
+  font-size: 12px;
+  color: var(--error);
+  margin: 0;
+}
+
+/* ── Room code display ──────────────────────────────────────────────────────── */
+.room-code {
+  font-family: var(--mono);
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  color: var(--accent);
+  text-align: center;
+  padding: 1rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  user-select: all;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────────── */
+.btn {
+  padding: 0.6rem 1.25rem;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s;
+}
+
+.btn:hover  { opacity: 0.85; }
+.btn:active { opacity: 0.7; }
+
+.btn--primary {
+  background: var(--button-bg);
+  color: var(--button-txt);
+}
+
+.btn--secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
 /* ── ChatBox ───────────────────────────────────────────────── */
 .chatbox {
   display: flex;
@@ -134,15 +255,17 @@ body {
   transition: border-color 0.2s;
 }
 
-.chatbox--connected  { border-color: var(--success); }
+.chatbox--connected    { border-color: var(--success); }
+.chatbox--connecting   { border-color: var(--border); }
 .chatbox--reconnecting { border-color: var(--warn); }
-.chatbox--waking { border-color: var(--warn); }
+.chatbox--waking       { border-color: var(--warn); }
 .chatbox--disconnected { border-color: var(--border); }
 
 .chatbox-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.5rem;
   padding: 0.65rem 1rem;
   background: var(--surface2);
   border-bottom: 1px solid var(--border);
@@ -158,11 +281,38 @@ body {
 .chatbox-status {
   font-size: 11px;
   letter-spacing: 0.04em;
+  margin-left: auto;
 }
 .chatbox-status--connected    { color: var(--success); }
+.chatbox-status--connecting   { color: var(--muted); }
 .chatbox-status--disconnected { color: var(--muted); }
 .chatbox-status--reconnecting { color: var(--warn); }
-.chatbox-status--waking { color: var(--warn); }
+.chatbox-status--waking       { color: var(--warn); }
+
+.leave-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.leave-btn:hover {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.waiting-banner {
+  padding: 0.6rem 1rem;
+  font-size: 12px;
+  color: var(--warn);
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
 
 .chatbox-messages {
   flex: 1;
@@ -320,9 +470,10 @@ body {
 ::-webkit-scrollbar-track  { background: transparent; }
 ::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 4px; }
 
-/* ── Responsive: stack below 900px ────────────────────────── */
+/* ── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 900px) {
-  .app-main {
+  .app-main,
+  .app-main--split {
     grid-template-columns: 1fr;
   }
   .chatbox-messages,

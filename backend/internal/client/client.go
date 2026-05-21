@@ -12,11 +12,10 @@ import (
 
 const (
 	inactivityTimeout = 10 * time.Second
-	sendBufferSize    = 32
+	sendBufferSize    = 64
 	writeWait         = 5 * time.Second
 )
 
-// OutboundKind distinguishes what is inside an Outbound envelope.
 type OutboundKind int
 
 const (
@@ -24,8 +23,8 @@ const (
 	OutboundEvent
 )
 
-// Outbound is a tagged union that carries either a chat message or a log event.
-// WritePump is the only goroutine that reads from Send and writes to the WebSocket, both types flow through the same channel to preserve that guarantee.
+// Outbound is a tagged union — WritePump is the sole writer to the WebSocket,
+// so both messages and events flow through this single channel.
 type Outbound struct {
 	Kind    OutboundKind
 	Message message.Message
@@ -34,12 +33,14 @@ type Outbound struct {
 
 type Client struct {
 	Name string
+	Room string // room code this client belongs to
 	Send chan Outbound
 }
 
-type Sender interface {
+// RoomSender is the subset of Hub that ReadPump needs.
+type RoomSender interface {
 	Send(m message.Message)
-	Unregister(name string)
+	LeaveRoom(name, code string)
 }
 
 type Conn interface {
@@ -50,16 +51,17 @@ type Conn interface {
 	Close() error
 }
 
-func NewClient(name string) *Client {
+func NewClient(name, roomCode string) *Client {
 	return &Client{
 		Name: name,
+		Room: roomCode,
 		Send: make(chan Outbound, sendBufferSize),
 	}
 }
 
-func (c *Client) ReadPump(ctx context.Context, conn Conn, hub Sender, emitEvent func(level, msg string)) {
+func (c *Client) ReadPump(ctx context.Context, conn Conn, hub RoomSender, emitEvent func(level, msg string)) {
 	defer func() {
-		hub.Unregister(c.Name)
+		hub.LeaveRoom(c.Name, c.Room)
 		conn.Close()
 	}()
 
@@ -94,8 +96,9 @@ func (c *Client) ReadPump(ctx context.Context, conn Conn, hub Sender, emitEvent 
 			continue
 		}
 
+		// Enforce identity and room — client cannot spoof either.
 		m.From = c.Name
-		m.To = otherUser(c.Name)
+		m.Room = c.Room
 
 		hub.Send(m)
 	}
@@ -114,7 +117,7 @@ func (c *Client) WritePump(ctx context.Context, conn Conn, emitEvent func(level,
 		case outbound, ok := <-c.Send:
 			if !ok {
 				_ = conn.WriteMessage(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutdown — inactivity"))
+					websocket.FormatCloseMessage(websocket.CloseGoingAway, "room closed"))
 				return
 			}
 
@@ -135,11 +138,4 @@ func (c *Client) WritePump(ctx context.Context, conn Conn, emitEvent func(level,
 			_ = conn.SetWriteDeadline(time.Time{})
 		}
 	}
-}
-
-func otherUser(name string) string {
-	if name == "alex" {
-		return "bob"
-	}
-	return "alex"
 }
