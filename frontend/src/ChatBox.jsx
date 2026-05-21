@@ -103,14 +103,14 @@ export default function ChatBox({ user, addEvent }) {
       wsRef.current = null
       if (isUnmountedRef.current) return
 
-      // code 1000 = clean close (inactivity timeout, unmount, or explicit disconnect).
+      // code 1000 = clean close (unmount, or explicit disconnect).
       // Do NOT auto-reconnect. Wait for explicit user action.
       if (e.code === 1000) {
         setStatus('disconnected')
         return
       }
 
-      // Unexpected loss — retry with exponential backoff.
+      // Any other code (including 1001 from server-side inactivity timeout), schedule reconnect with exponential backoff.
       addEvent(`${user} connection lost (code ${e.code}) — retrying`, 'error')
       scheduleReconnect(connect)
     }

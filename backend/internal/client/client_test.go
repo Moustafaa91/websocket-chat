@@ -14,14 +14,12 @@ import (
 
 // ── Mock WebSocket connection ─────────────────────────────────────────────────
 
-// mockConn implements the Conn interface for testing.
-// It allows tests to inject messages and inspect writes without a real network.
 type mockConn struct {
 	mu       sync.Mutex
-	incoming [][]byte      // messages ReadMessage returns, in order
-	written  []interface{} // values passed to WriteJSON
+	incoming [][]byte
+	written  []interface{}
 	closed   bool
-	closeErr error // error ReadMessage returns after incoming is exhausted
+	closeErr error
 }
 
 func (m *mockConn) ReadMessage() (int, []byte, error) {
@@ -80,7 +78,7 @@ func (m *mockConn) getWritten() []interface{} {
 	return out
 }
 
-// ── Mock Hub (Sender interface) ───────────────────────────────────────────────
+// ── Mock Hub ──────────────────────────────────────────────────────────────────
 
 type mockHub struct {
 	mu           sync.Mutex
@@ -131,14 +129,11 @@ func marshalMsg(t *testing.T, m message.Message) []byte {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-// TestReadPumpForwardsMessageToHub verifies that a valid incoming message is
-// decoded and forwarded to the Hub with the correct From and To fields.
 func TestReadPumpForwardsMessageToHub(t *testing.T) {
 	conn := &mockConn{}
 	hub := &mockHub{}
 	c := NewClient("alex")
 
-	// Inject one valid message then close the connection.
 	conn.incoming = [][]byte{
 		marshalMsg(t, message.Message{From: "alex", To: "bob", Text: "hello", TS: 1}),
 	}
@@ -154,24 +149,21 @@ func TestReadPumpForwardsMessageToHub(t *testing.T) {
 		t.Fatalf("expected 1 message sent to hub, got %d", len(sent))
 	}
 	if sent[0].From != "alex" {
-		t.Errorf("From field should be enforced as 'alex', got %q", sent[0].From)
+		t.Errorf("expected From='alex', got %q", sent[0].From)
 	}
 	if sent[0].To != "bob" {
-		t.Errorf("To should be 'bob', got %q", sent[0].To)
+		t.Errorf("expected To='bob', got %q", sent[0].To)
 	}
 	if sent[0].Text != "hello" {
 		t.Errorf("unexpected text: %q", sent[0].Text)
 	}
 }
 
-// TestReadPumpEnforcesSenderIdentity verifies that even if the client sends a
-// spoofed From field, the Hub always sees the real user's name.
 func TestReadPumpEnforcesSenderIdentity(t *testing.T) {
 	conn := &mockConn{}
 	hub := &mockHub{}
 	c := NewClient("bob")
 
-	// Client tries to pretend to be alex.
 	conn.incoming = [][]byte{
 		marshalMsg(t, message.Message{From: "alex", To: "bob", Text: "spoofed", TS: 1}),
 	}
@@ -187,16 +179,12 @@ func TestReadPumpEnforcesSenderIdentity(t *testing.T) {
 		t.Fatalf("expected 1 message, got %d", len(sent))
 	}
 	if sent[0].From != "bob" {
-		t.Errorf("expected From to be enforced as 'bob', got %q", sent[0].From)
+		t.Errorf("expected From enforced as 'bob', got %q", sent[0].From)
 	}
 }
 
-// TestReadPumpCallsUnregisterOnClose verifies that Unregister is always called
-// when the connection closes, regardless of reason.
 func TestReadPumpCallsUnregisterOnClose(t *testing.T) {
-	conn := &mockConn{
-		closeErr: errors.New("connection reset"),
-	}
+	conn := &mockConn{closeErr: errors.New("connection reset")}
 	hub := &mockHub{}
 	c := NewClient("alex")
 
@@ -211,18 +199,14 @@ func TestReadPumpCallsUnregisterOnClose(t *testing.T) {
 	}
 }
 
-// TestWritePumpDeliversMessage verifies that a message placed on c.Send is
-// written to the WebSocket connection.
 func TestWritePumpDeliversMessage(t *testing.T) {
 	conn := &mockConn{}
 	c := NewClient("bob")
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Send one message then close the Send channel to terminate the write pump.
 	go func() {
-		c.Send <- message.Message{From: "alex", To: "bob", Text: "delivered", TS: 1}
-		// Give the pump time to write it, then cancel.
+		c.Send <- Outbound{Kind: OutboundMessage, Message: message.Message{From: "alex", To: "bob", Text: "delivered", TS: 1}}
 		time.Sleep(50 * time.Millisecond)
 		cancel()
 	}()
@@ -235,8 +219,6 @@ func TestWritePumpDeliversMessage(t *testing.T) {
 	}
 }
 
-// TestWritePumpExitsOnChannelClose verifies that closing c.Send causes the
-// write pump to exit cleanly (no goroutine leak).
 func TestWritePumpExitsOnChannelClose(t *testing.T) {
 	conn := &mockConn{}
 	c := NewClient("alex")
@@ -249,19 +231,15 @@ func TestWritePumpExitsOnChannelClose(t *testing.T) {
 		close(done)
 	}()
 
-	// Close the Send channel — write pump should exit.
 	close(c.Send)
 
 	select {
 	case <-done:
-		// Correct — pump exited.
 	case <-time.After(time.Second):
-		t.Fatal("WritePump did not exit after Send channel was closed")
+		t.Fatal("WritePump did not exit after Send channel closed")
 	}
 }
 
-// TestWritePumpExitsOnContextCancel verifies that cancelling the context
-// causes the write pump to exit cleanly.
 func TestWritePumpExitsOnContextCancel(t *testing.T) {
 	conn := &mockConn{}
 	c := NewClient("alex")
@@ -278,13 +256,11 @@ func TestWritePumpExitsOnContextCancel(t *testing.T) {
 
 	select {
 	case <-done:
-		// Correct — pump exited.
 	case <-time.After(time.Second):
 		t.Fatal("WritePump did not exit after context cancellation")
 	}
 }
 
-// TestOtherUser verifies the two-user routing helper.
 func TestOtherUser(t *testing.T) {
 	if got := otherUser("alex"); got != "bob" {
 		t.Errorf("otherUser('alex') = %q, want 'bob'", got)
