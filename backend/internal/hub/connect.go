@@ -66,6 +66,7 @@ func (h *Hub) handleCreateRoom(cmd command) {
 		} else if prev == room.PresenceOffline {
 			h.logEvent(event.LevelSuccess, cmd.code, fmt.Sprintf("Player 1 rejoined room %s", cmd.code))
 		}
+		h.broadcastPresence(r, room.Player2, r.PresenceOf(room.Player2))
 	}
 
 	h.broadcastPresence(r, cmd.client.Name, room.PresenceOnline)
@@ -87,6 +88,7 @@ func (h *Hub) handleJoinRoom(cmd command) {
 		r.Join(cmd.client)
 		h.logEvent(event.LevelSuccess, cmd.code, fmt.Sprintf("room %s is now active", cmd.code))
 		h.flushPendingFor(r, cmd.client)
+		h.broadcastPresence(r, room.Player1, r.PresenceOf(room.Player1))
 		h.broadcastPresence(r, room.Player2, room.PresenceOnline)
 		cmd.reply <- reply{}
 		return

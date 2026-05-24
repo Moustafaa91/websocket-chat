@@ -33,6 +33,66 @@ export default function WaitingScreen({
   const [copyState, setCopyState] = useState('idle')
 
   useEffect(() => {
+    let reconnectTimer = null
+    let keepAliveTimer = null
+
+    function stopKeepAlive() {
+      if (!keepAliveTimer) return
+      window.clearInterval(keepAliveTimer)
+      keepAliveTimer = null
+    }
+
+    function startKeepAlive(ws) {
+      stopKeepAlive()
+      keepAliveTimer = window.setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ ping: true }))
+        }
+      }, 5000)
+    }
+
+    function cleanupWaitingConnection() {
+      if (connectionRef.current) {
+        connectionRef.current.cancelled = true
+      }
+      if (reconnectTimer) window.clearTimeout(reconnectTimer)
+      stopKeepAlive()
+    }
+
+    function openChat(ws) {
+      firedRef.current = true
+      if (reconnectTimer) window.clearTimeout(reconnectTimer)
+      stopKeepAlive()
+      onReady(ws, code)
+    }
+
+    function scheduleReconnect() {
+      if (firedRef.current || reconnectTimer) return
+
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null
+        if (firedRef.current) return
+
+        const attempt = { cancelled: false, ws: null }
+        connectionRef.current = attempt
+        connectStartedRef.current = true
+
+        connectRoom(code, 1)
+          .then(ws => {
+            waitForPartner(ws, attempt, true)
+          })
+          .catch(err => {
+            if (!attempt.cancelled) {
+              connectStartedRef.current = false
+              connectionRef.current = null
+              roomWsRef.current = null
+              addEvent(err.message || 'Connection error on room ' + code, 'error')
+              scheduleReconnect()
+            }
+          })
+      }, 1000)
+    }
+
     function waitForPartner(ws, attempt, shouldLogConnection = false) {
       attempt.ws = ws
       roomWsRef.current = ws
@@ -46,6 +106,8 @@ export default function WaitingScreen({
         addEvent(`Connected to room ${code} - waiting for Player 2`, 'info')
       }
 
+      startKeepAlive(ws)
+
       ws.onmessage = (e) => {
         if (attempt.cancelled || firedRef.current) return
 
@@ -58,8 +120,7 @@ export default function WaitingScreen({
 
           if (!partnerJoined) return
 
-          firedRef.current = true
-          onReady(ws, code)
+          openChat(ws)
         } catch {
           addEvent(e.data, 'info')
         }
@@ -71,7 +132,9 @@ export default function WaitingScreen({
         connectStartedRef.current = false
         connectionRef.current = null
         roomWsRef.current = null
-        addEvent(e.reason || 'Connection closed while waiting for Player 2', 'warn')
+        stopKeepAlive()
+        addEvent(e.reason || 'Reconnecting while waiting for Player 2', 'warn')
+        scheduleReconnect()
       }
 
       ws.onerror = () => {
@@ -80,7 +143,9 @@ export default function WaitingScreen({
         connectStartedRef.current = false
         connectionRef.current = null
         roomWsRef.current = null
-        addEvent('WebSocket error while waiting for Player 2', 'error')
+        stopKeepAlive()
+        addEvent('WebSocket error while waiting for Player 2 - reconnecting', 'error')
+        scheduleReconnect()
       }
     }
 
@@ -88,9 +153,7 @@ export default function WaitingScreen({
       const attempt = { cancelled: false, ws: roomWsRef.current }
       connectionRef.current = attempt
       waitForPartner(roomWsRef.current, attempt)
-      return () => {
-        attempt.cancelled = true
-      }
+      return cleanupWaitingConnection
     }
 
     if (connectionRef.current) {
@@ -98,9 +161,7 @@ export default function WaitingScreen({
       if (connectionRef.current.ws?.readyState === WebSocket.OPEN) {
         waitForPartner(connectionRef.current.ws, connectionRef.current)
       }
-      return () => {
-        connectionRef.current.cancelled = true
-      }
+      return cleanupWaitingConnection
     }
 
     const attempt = { cancelled: false, ws: null }
@@ -120,9 +181,7 @@ export default function WaitingScreen({
         }
       })
 
-    return () => {
-      attempt.cancelled = true
-    }
+    return cleanupWaitingConnection
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleCopy() {

@@ -122,7 +122,7 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
       if (existingWs.readyState === WebSocket.OPEN) {
         setStatus(PRESENCE.ONLINE)
         resetInactivityTimer()
-        setPartnerPresence(PRESENCE.ONLINE)
+        if (playerNum === 1) setPartnerPresence(PRESENCE.ONLINE)
       }
       attachHandlers(existingWs)
     } else {

@@ -123,6 +123,38 @@ input:focus-visible {
   color: var(--muted);
 }
 
+.source-link {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--surface);
+  padding: 0 14px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.source-link:hover {
+  background: var(--surface2);
+  border-color: var(--muted);
+}
+
+.source-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.source-link-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
 .theme-toggle {
   min-height: 34px;
   border: 1px solid var(--border);
@@ -714,6 +746,12 @@ input:focus-visible {
 
   .theme-toggle {
     margin-left: auto;
+  }
+
+  .source-link {
+    order: 4;
+    width: 100%;
+    justify-content: center;
   }
 
   .home-card {
