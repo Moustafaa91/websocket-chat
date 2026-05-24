@@ -1,10 +1,10 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import ChatRoom from './components/ChatRoom'
 import EventLog from './components/EventLog'
 import HomeScreen from './screens/HomeScreen'
 import WaitingScreen from './screens/WaitingScreen'
 import JoiningScreen from './screens/JoiningScreen'
-import { createRoom, validateRoom } from './api/rooms'
+import { createRoom, validateRoom, wakeBackend } from './api/rooms'
 import { useTheme } from './hooks/useTheme'
 import { useEventLog } from './hooks/useEventLog'
 import './App.css'
@@ -17,12 +17,27 @@ export default function App() {
   const [joinError, setJoinError] = useState('')
   const [joinLoading, setJoinLoading] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
+  const [createStatus, setCreateStatus] = useState('')
 
   const roomWsRef = useRef(null)
   const wsConnectStartedRef = useRef(false)
+  const createStatusTimersRef = useRef([])
 
   const { theme, toggleTheme } = useTheme()
   const { events, addEvent } = useEventLog()
+
+  const clearCreateStatusTimers = useCallback(() => {
+    createStatusTimersRef.current.forEach(clearTimeout)
+    createStatusTimersRef.current = []
+  }, [])
+
+  useEffect(() => {
+    wakeBackend().catch(() => {
+      // The create/join actions surface connection errors when the user needs them.
+    })
+  }, [])
+
+  useEffect(() => clearCreateStatusTimers, [clearCreateStatusTimers])
 
   const resetSession = useCallback(() => {
     wsConnectStartedRef.current = false
@@ -31,8 +46,20 @@ export default function App() {
   }, [])
 
   const handleCreate = useCallback(async () => {
+    clearCreateStatusTimers()
     setCreateLoading(true)
+    setCreateStatus('Contacting the chat server...')
+    createStatusTimersRef.current = [
+      setTimeout(() => {
+        setCreateStatus('The free Render backend is waking up. This can take about a minute after idle time.')
+      }, 2500),
+      setTimeout(() => {
+        setCreateStatus('Still waking the server. Please keep this tab open; your room will appear automatically.')
+      }, 15000),
+    ]
+
     try {
+      await wakeBackend()
       const code = await createRoom()
       setRoomCode(code)
       setPlayerNum(1)
@@ -42,9 +69,11 @@ export default function App() {
     } catch (err) {
       addEvent('Could not create room: ' + err.message, 'error')
     } finally {
+      clearCreateStatusTimers()
+      setCreateStatus('')
       setCreateLoading(false)
     }
-  }, [addEvent])
+  }, [addEvent, clearCreateStatusTimers])
 
   const handleCancelWaiting = useCallback(() => {
     if (roomWsRef.current) {
@@ -154,6 +183,7 @@ export default function App() {
               onJoinSubmit={handleJoinSubmit}
               onCreate={handleCreate}
               createLoading={createLoading}
+              createStatus={createStatus}
             />
           )}
           {screen === 'waiting' && (

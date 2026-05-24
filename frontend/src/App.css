@@ -262,6 +262,19 @@ input:focus-visible {
   white-space: nowrap;
 }
 
+.home-status {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 38%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  color: var(--text);
+  font-size: 0.86rem;
+}
+
 .home-divider {
   display: flex;
   align-items: center;

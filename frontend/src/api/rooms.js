@@ -9,8 +9,22 @@ async function parseError(res) {
   }
 }
 
+export async function wakeBackend() {
+  if (!API_URL) return
+
+  const res = await fetch(`${API_URL}/health`, {
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    throw new Error(await parseError(res))
+  }
+}
+
 export async function createRoom() {
-  const res = await fetch(`${API_URL}/rooms`, { method: 'POST' })
+  const res = await fetch(`${API_URL}/rooms`, {
+    method: 'POST',
+    cache: 'no-store',
+  })
   if (!res.ok) {
     throw new Error(await parseError(res))
   }

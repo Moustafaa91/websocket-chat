@@ -33,6 +33,7 @@ func New(ctx context.Context, port string) *Server {
 	mux.HandleFunc("POST /rooms", rooms.create)
 	mux.HandleFunc("GET /rooms/{code}", rooms.lookup)
 	mux.HandleFunc("GET /ws", ws.serve)
+	mux.HandleFunc("GET /{$}", health)
 	mux.HandleFunc("GET /health", health)
 
 	return &Server{

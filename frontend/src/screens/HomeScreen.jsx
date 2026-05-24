@@ -6,6 +6,7 @@ export default function HomeScreen({
   onJoinSubmit,
   onCreate,
   createLoading,
+  createStatus,
 }) {
   function handleSubmit(e) {
     e.preventDefault()
@@ -31,8 +32,14 @@ export default function HomeScreen({
             onClick={onCreate}
             disabled={createLoading}
           >
-            {createLoading ? 'Creating...' : 'Create New Chat'}
+            {createLoading ? 'Waking server...' : 'Create New Chat'}
           </button>
+          {createStatus && (
+            <p className="home-status" role="status" aria-live="polite">
+              <span className="waiting-spinner" aria-hidden="true" />
+              <span>{createStatus}</span>
+            </p>
+          )}
         </section>
 
         <div className="home-divider"><span>or</span></div>
