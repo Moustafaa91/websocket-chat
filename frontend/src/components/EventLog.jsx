@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react'
 
 const TYPE_LABEL = {
-  success: '✓',
-  warn: '⚠',
-  error: '✕',
-  info: '·',
+  success: 'OK',
+  warn: '!',
+  error: 'X',
+  info: 'i',
 }
 
 export default function EventLog({ events }) {
@@ -30,11 +30,11 @@ export default function EventLog({ events }) {
       </div>
       <div className="eventlog-body">
         {events.length === 0 && (
-          <p className="eventlog-empty">waiting for events…</p>
+          <p className="eventlog-empty">waiting for events...</p>
         )}
         {events.map(ev => (
           <div key={ev.id} className={`event event--${ev.type}`}>
-            <span className="event-icon">{TYPE_LABEL[ev.type] ?? '·'}</span>
+            <span className="event-icon">{TYPE_LABEL[ev.type] ?? 'i'}</span>
             <span className="event-time">{formatTime(ev.time)}</span>
             <span className="event-msg">{ev.message}</span>
           </div>

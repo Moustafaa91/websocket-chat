@@ -54,10 +54,18 @@ export default function JoiningScreen({
   return (
     <div className="home-screen">
       <div className="home-card">
+        <div className="state-eyebrow">
+          <span className="status-pulse" />
+          Connecting
+        </div>
         <h2 className="home-title">Joining room</h2>
         <p className="home-desc">
-          Connecting with code <span className="room-code-inline">{code}</span>…
+          Establishing the WebSocket session for room <span className="room-code-inline">{code}</span>.
         </p>
+        <div className="waiting-message" role="status" aria-live="polite">
+          <span className="waiting-spinner" />
+          <span>Checking the room and connecting you...</span>
+        </div>
       </div>
     </div>
   )

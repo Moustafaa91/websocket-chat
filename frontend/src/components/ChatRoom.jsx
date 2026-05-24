@@ -70,7 +70,7 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
 
       if (e.code === 1008) {
         setStatus(PRESENCE.OFFLINE)
-        onEnd(e.reason || 'Could not join room — invalid or expired code')
+        onEnd(e.reason || 'Could not join room - invalid or expired code')
         return
       }
 
@@ -82,12 +82,12 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
 
       if (e.reason === CLOSE_REASON.INACTIVITY || e.code === 1001) {
         setStatus(PRESENCE.INACTIVE)
-        addEvent(`${name} inactive — focus the chat to come back online`, 'warn')
+        addEvent(`${name} inactive - focus the chat to come back online`, 'warn')
         return
       }
 
       setStatus(PRESENCE.INACTIVE)
-      addEvent(`${name} connection closed — focus the chat to reconnect`, 'warn')
+      addEvent(`${name} connection closed - focus the chat to reconnect`, 'warn')
     }
 
     ws.onerror = () => addEvent(`${name} WebSocket error`, 'error')
@@ -122,7 +122,7 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
       if (existingWs.readyState === WebSocket.OPEN) {
         setStatus(PRESENCE.ONLINE)
         resetInactivityTimer()
-        if (playerNum === 2) setPartnerPresence(PRESENCE.ONLINE)
+        setPartnerPresence(PRESENCE.ONLINE)
       }
       attachHandlers(existingWs)
     } else {
@@ -139,7 +139,7 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
 
   const handleChatActivity = useCallback(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      addEvent(`${name} active — reconnecting`, 'info')
+      addEvent(`${name} active - reconnecting`, 'info')
       connect()
       return
     }
@@ -150,7 +150,7 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
     const text = input.trim()
     if (!text) return
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      addEvent(`${name} inactive — focus the chat to send`, 'warn')
+      addEvent(`${name} inactive - focus the chat to send`, 'warn')
       return
     }
     const msg = { from: name, text, ts: Date.now() }
@@ -177,17 +177,17 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
   }, [onEnd])
 
   const statusLabel = {
-    connecting: '◌ connecting…',
-    online: '● online',
-    inactive: '◐ inactive',
-    offline: '○ offline',
-  }[status] ?? '○ offline'
+    connecting: 'connecting...',
+    online: 'online',
+    inactive: 'inactive',
+    offline: 'offline',
+  }[status] ?? 'offline'
 
   const partnerLabel = {
-    [PRESENCE.ABSENT]: 'partner: waiting…',
-    [PRESENCE.ONLINE]: 'partner: ● online',
-    [PRESENCE.INACTIVE]: 'partner: ◐ inactive',
-    [PRESENCE.OFFLINE]: 'partner: ○ offline',
+    [PRESENCE.ABSENT]: 'partner: waiting...',
+    [PRESENCE.ONLINE]: 'partner: online',
+    [PRESENCE.INACTIVE]: 'partner: inactive',
+    [PRESENCE.OFFLINE]: 'partner: offline',
   }[partnerPresence] ?? ''
 
   return (
@@ -202,13 +202,13 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
 
       {playerNum === 1 && partnerPresence === PRESENCE.ABSENT && status === PRESENCE.ONLINE && (
         <div className="waiting-banner">
-          Waiting for Player 2… messages you send now will be delivered when they join.
+          Waiting for Player 2. Messages you send now will be delivered when they join.
         </div>
       )}
 
       {partnerPresence === PRESENCE.INACTIVE && status === PRESENCE.ONLINE && (
         <div className="waiting-banner">
-          Your partner is inactive — messages will be delivered when they return.
+          Your partner is inactive - messages will be delivered when they return.
         </div>
       )}
 
@@ -229,7 +229,7 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
         <input
           className="chatbox-input"
           type="text"
-          placeholder={status === PRESENCE.INACTIVE ? 'Focus here to reconnect…' : 'Type a message…'}
+          placeholder={status === PRESENCE.INACTIVE ? 'Focus here to reconnect...' : 'Type a message...'}
           value={input}
           onChange={e => setInput(e.target.value)}
           onFocus={handleChatActivity}

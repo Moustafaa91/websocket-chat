@@ -14,38 +14,50 @@ export default function HomeScreen({
 
   return (
     <div className="home-screen">
-      <div className="home-card">
-        <h2 className="home-title">Start a chat</h2>
+      <div className="home-card home-card--wide">
+        <h2 className="home-title">Start a WebSocket chat</h2>
         <p className="home-desc">
-          Create a new room and share the code, or enter a code to join a friend's room.
+          Create a room for a two-person session, or join one with a six-character code.
         </p>
 
-        <button
-          className="btn btn--primary home-create"
-          type="button"
-          onClick={onCreate}
-          disabled={createLoading}
-        >
-          {createLoading ? 'Creating…' : 'Create New Chat'}
-        </button>
+        <section className="home-action">
+          <div>
+            <h3>Create a room</h3>
+            <p>Generate a code and wait for the second participant to connect.</p>
+          </div>
+          <button
+            className="btn btn--primary home-create"
+            type="button"
+            onClick={onCreate}
+            disabled={createLoading}
+          >
+            {createLoading ? 'Creating...' : 'Create New Chat'}
+          </button>
+        </section>
 
         <div className="home-divider"><span>or</span></div>
 
-        <form className="home-join" onSubmit={handleSubmit}>
-          <input
-            className="chatbox-input"
-            type="text"
-            placeholder="Enter 6-character code"
-            value={joinInput}
-            onChange={onJoinInputChange}
-            maxLength={6}
-            autoComplete="off"
-            style={{ textTransform: 'uppercase', letterSpacing: '0.15em' }}
-            disabled={joinLoading}
-          />
-          <button className="btn btn--secondary" type="submit" disabled={joinLoading}>
-            {joinLoading ? 'Checking…' : 'Join Chat'}
-          </button>
+        <form className="home-action home-join" onSubmit={handleSubmit}>
+          <div>
+            <h3>Join a room</h3>
+            <p>Enter the code shared by Player 1.</p>
+          </div>
+          <div className="join-row">
+            <input
+              className="chatbox-input join-code-input"
+              type="text"
+              placeholder="ABC123"
+              value={joinInput}
+              onChange={onJoinInputChange}
+              maxLength={6}
+              autoComplete="off"
+              disabled={joinLoading}
+              aria-label="Room code"
+            />
+            <button className="btn btn--secondary" type="submit" disabled={joinLoading}>
+              {joinLoading ? 'Checking...' : 'Join Chat'}
+            </button>
+          </div>
           {joinError && <p className="home-error" role="alert">{joinError}</p>}
         </form>
       </div>

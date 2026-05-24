@@ -38,7 +38,7 @@ export default function App() {
       setPlayerNum(1)
       wsConnectStartedRef.current = false
       setScreen('waiting')
-      addEvent(`Room ${code} created — share the code with your friend`, 'success')
+      addEvent(`Room ${code} created - share the code with your friend`, 'success')
     } catch (err) {
       addEvent('Could not create room: ' + err.message, 'error')
     } finally {
@@ -59,7 +59,7 @@ export default function App() {
   const handlePlayer1Ready = useCallback((ws, code) => {
     roomWsRef.current = ws
     setScreen('chat')
-    addEvent(`Connected to room ${code} — waiting for Player 2`, 'info')
+    addEvent(`Player 2 joined room ${code} - opening chat`, 'success')
   }, [addEvent])
 
   const handleJoinSubmit = useCallback(async () => {
@@ -85,7 +85,7 @@ export default function App() {
     setPlayerNum(2)
     wsConnectStartedRef.current = false
     setScreen('joining')
-    addEvent(`Joining room ${code}…`, 'info')
+    addEvent(`Joining room ${code}...`, 'info')
   }, [joinInput, addEvent])
 
   const handleJoinSuccess = useCallback((ws, code) => {
@@ -118,7 +118,7 @@ export default function App() {
       <header className="app-header">
         <div className="header-dot" />
         <h1>websocket<span>chat</span></h1>
-        <p className="header-sub">real-time · go backend · websocket</p>
+        <p className="header-sub">real-time / go backend / websocket</p>
         <button type="button" className="theme-toggle" onClick={toggleTheme}>
           {theme === 'dark' ? 'Light mode' : 'Dark mode'}
         </button>

@@ -19,7 +19,7 @@ export function connectRoom(code, player) {
     ws.onerror = () => {
       if (!settled) {
         settled = true
-        reject(new Error('Could not connect — check your connection and try again'))
+        reject(new Error('Could not connect - check your connection and try again'))
       }
     }
 
