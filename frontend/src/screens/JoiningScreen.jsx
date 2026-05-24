@@ -3,6 +3,7 @@ import { connectRoom } from '../api/websocket'
 
 export default function JoiningScreen({
   code,
+  playerNum,
   connectStartedRef,
   onSuccess,
   onFailure,
@@ -32,7 +33,7 @@ export default function JoiningScreen({
     const attempt = { cancelled: false, ws: null }
     connectionRef.current = attempt
 
-    connectRoom(code, 2)
+    connectRoom(code, playerNum)
       .then(ws => {
         attempt.ws = ws
         if (attempt.cancelled || firedRef.current) {

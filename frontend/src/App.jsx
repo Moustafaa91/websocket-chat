@@ -100,8 +100,14 @@ export default function App() {
 
     setJoinError('')
     setJoinLoading(true)
+    let targetPlayer = 2
     try {
-      await validateRoom(code, 2)
+      try {
+        await validateRoom(code, 2)
+      } catch {
+        await validateRoom(code, 1)
+        targetPlayer = 1
+      }
     } catch (err) {
       setJoinError(err.message)
       addEvent(err.message, 'error')
@@ -111,10 +117,10 @@ export default function App() {
     }
 
     setRoomCode(code)
-    setPlayerNum(2)
+    setPlayerNum(targetPlayer)
     wsConnectStartedRef.current = false
     setScreen('joining')
-    addEvent(`Joining room ${code}...`, 'info')
+    addEvent(`Joining room ${code} as Player ${targetPlayer}...`, 'info')
   }, [joinInput, addEvent])
 
   const handleJoinSuccess = useCallback((ws, code) => {
@@ -199,6 +205,7 @@ export default function App() {
           {screen === 'joining' && (
             <JoiningScreen
               code={roomCode}
+              playerNum={playerNum}
               connectStartedRef={wsConnectStartedRef}
               onSuccess={handleJoinSuccess}
               onFailure={handleJoinFailure}

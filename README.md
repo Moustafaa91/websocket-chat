@@ -4,24 +4,9 @@ A real-time WebSocket chat POC demonstrating production-quality Go concurrency p
 
 Two players chat in a private room created by Player 1. Player 1 gets a six-character code to share; Player 2 enters that code to join. A Go backend manages room lifecycle, WebSocket connections, presence, inactivity timeouts, and in-memory message buffering.
 
-Built to show what clean, idiomatic Go looks like under real network conditions.
-
-**Source code:** [Moustafaa91/websocket-chat](https://github.com/Moustafaa91/websocket-chat)
-
-**Live demo:** in progress
+[Live demo](https://go-websocket-chat.netlify.app/)
 
 ---
-
-## What It Does
-
-- Room-based chat: Player 1 creates a room and receives a code such as `ABC234`; Player 2 joins with that code.
-- Clear waiting-room UX: Player 1 sees a large room code, a copy button, and a waiting message until Player 2 joins.
-- Join validation: invalid or expired codes are rejected before chat starts, and the UI shows the server error.
-- Real-time messaging between two players over WebSocket.
-- Live presence updates for both players.
-- In-memory buffering for messages sent while a partner is inactive.
-- A live event log panel shows room and connection state changes in real time.
-- Light and dark themes for the React UI.
 
 ### Presence States
 
@@ -30,10 +15,6 @@ Built to show what clean, idiomatic Go looks like under real network conditions.
 | Online | WebSocket is open and active. | Messages are delivered live. |
 | Inactive | No chat activity for 10 seconds; WebSocket is closed, but the room remains available. | Messages are buffered and delivered when the player reconnects. |
 | Offline | Player clicked Leave, closed the tab, or closed the browser. | Messages are not buffered. The player can rejoin later if the room still exists. |
-
-The room stays open while at least one player is online or inactive. It is deleted only when both players are offline.
-
-While Player 1 is on the waiting-code screen, the frontend sends a lightweight keepalive ping so the room does not become inactive just because Player 1 is waiting for Player 2.
 
 ### User Flow
 
@@ -46,20 +27,6 @@ While Player 1 is on the waiting-code screen, the frontend sends a lightweight k
 7. Either player can return with the same code after going offline or inactive, as long as the room has not been deleted.
 
 ---
-
-## Architecture
-
-```text
-Browser (React)
-  Player 1 WS ----\
-                   +----> Go HTTP Server
-  Player 2 WS ----/             |
-                                v
-                         Hub goroutine
-                         rooms map[code]*Room
-                         per-player presence
-                         buffered inactive messages
-```
 
 ### HTTP API
 
@@ -105,22 +72,6 @@ websocket-chat/
         ├── screens/             # home, waiting, joining
         └── components/          # ChatRoom, EventLog
 ```
-
----
-
-## Key Go Concepts Demonstrated
-
-| Concept | Where |
-|---|---|
-| Hub pattern with channel-owned shared state | `backend/internal/hub/hub.go` |
-| Room-scoped routing and lifecycle | `backend/internal/hub/`, `backend/internal/room/` |
-| Read pump / write pump goroutine separation | `backend/internal/client/` |
-| `time.Timer` usage for inactivity | `backend/internal/client/pump_read.go` |
-| `context.Context` propagation and cancellation | `backend/cmd/server/main.go`, server/client packages |
-| Graceful shutdown | `backend/cmd/server/main.go` |
-| In-memory message buffering for inactive partners | `backend/internal/hub/messages.go` |
-
----
 
 ## Running Locally
 

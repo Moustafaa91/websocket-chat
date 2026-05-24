@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -12,16 +13,21 @@ import (
 
 const inactivityTimeout = 10 * time.Second
 
+type closeMode int32
+
+const (
+	closeModeOffline closeMode = iota
+	closeModeInactive
+)
+
 func (c *Client) ReadPump(ctx context.Context, conn Conn, hub Hub, emitEvent func(level, msg string)) {
-	inactiveClose := false
-	goOffline := false
+	var mode atomic.Int32
+	mode.Store(int32(closeModeOffline))
 
 	defer func() {
-		switch {
-		case inactiveClose:
+		switch closeMode(mode.Load()) {
+		case closeModeInactive:
 			hub.SetInactive(c.Name, c.Room)
-		case goOffline:
-			hub.GoOffline(c.Name, c.Room)
 		default:
 			hub.GoOffline(c.Name, c.Room)
 		}
@@ -30,7 +36,7 @@ func (c *Client) ReadPump(ctx context.Context, conn Conn, hub Hub, emitEvent fun
 
 	timer := time.AfterFunc(inactivityTimeout, func() {
 		emitEvent("warn", c.Name+" timed out (inactivity)")
-		inactiveClose = true
+		mode.Store(int32(closeModeInactive))
 		conn.Close()
 	})
 	defer timer.Stop()
@@ -48,9 +54,9 @@ func (c *Client) ReadPump(ctx context.Context, conn Conn, hub Hub, emitEvent fun
 			if errors.As(err, &closeErr) {
 				switch closeErr.Text {
 				case "user left", "offline":
-					goOffline = true
+					mode.Store(int32(closeModeOffline))
 				case "inactivity":
-					inactiveClose = true
+					mode.Store(int32(closeModeInactive))
 				}
 			} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 				emitEvent("error", c.Name+" read error: "+err.Error())

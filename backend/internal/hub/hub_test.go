@@ -173,6 +173,38 @@ func TestSetInactiveKeepsRoomAndBuffersMessages(t *testing.T) {
 	}
 }
 
+func TestBothInactiveKeepsRoomAndAllowsEitherPlayerToReturn(t *testing.T) {
+	h, cancel := newTestHub(t)
+	defer cancel()
+
+	code, _ := setupRoom(t, h)
+	p2 := client.NewClient("Player 2", code)
+	if err := h.JoinRoom(p2, code); err != nil {
+		t.Fatalf("JoinRoom: %v", err)
+	}
+
+	h.SetInactive("Player 1", code)
+	h.SetInactive("Player 2", code)
+	time.Sleep(20 * time.Millisecond)
+
+	p1re := client.NewClient("Player 1", code)
+	if err := h.CreateRoom(p1re, code); err != nil {
+		t.Fatalf("CreateRoom reconnect after both inactive: %v", err)
+	}
+
+	h.Send(message.Message{From: "Player 1", Room: code, Text: "p2 can still receive this later"})
+
+	p2re := client.NewClient("Player 2", code)
+	if err := h.JoinRoom(p2re, code); err != nil {
+		t.Fatalf("JoinRoom reconnect after both inactive: %v", err)
+	}
+
+	msgs := drainMessages(p2re.Send, 1, time.Second)
+	if len(msgs) != 1 || msgs[0].Text != "p2 can still receive this later" {
+		t.Fatalf("expected buffered message for Player 2 after both inactive, got %v", msgs)
+	}
+}
+
 func TestOfflineDoesNotBufferMessages(t *testing.T) {
 	h, cancel := newTestHub(t)
 	defer cancel()
