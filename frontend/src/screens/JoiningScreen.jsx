@@ -11,15 +11,19 @@ export default function JoiningScreen({
   const connectionRef = useRef(null)
 
   useEffect(() => {
+    function cleanupConnection() {
+      if (connectionRef.current) {
+        connectionRef.current.cancelled = true
+      }
+    }
+
     if (connectionRef.current) {
       connectionRef.current.cancelled = false
       if (connectionRef.current.ws?.readyState === WebSocket.OPEN && !firedRef.current) {
         firedRef.current = true
         onSuccess(connectionRef.current.ws, code)
       }
-      return () => {
-        connectionRef.current.cancelled = true
-      }
+      return cleanupConnection
     }
 
     if (connectStartedRef.current) return
@@ -46,9 +50,7 @@ export default function JoiningScreen({
         }
       })
 
-    return () => {
-      attempt.cancelled = true
-    }
+    return cleanupConnection
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

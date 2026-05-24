@@ -141,6 +141,7 @@ Create `frontend/.env` or `frontend/.env.local`:
 VITE_API_URL=http://localhost:8080
 VITE_WS_URL=ws://localhost:8080
 ```
+For a hosted HTTPS backend, use `wss://` for the WebSocket URL.
 
 Then run:
 
