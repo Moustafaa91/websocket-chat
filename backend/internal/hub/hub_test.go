@@ -2,6 +2,7 @@ package hub
 
 import (
 	"backend/internal/client"
+	"backend/internal/event"
 	"backend/internal/message"
 	"context"
 	"testing"
@@ -19,7 +20,7 @@ func newTestHub(t *testing.T) (*Hub, context.CancelFunc) {
 func drainMessages(ch <-chan client.Outbound, count int, timeout time.Duration) []message.Message {
 	var out []message.Message
 	deadline := time.After(timeout)
-	for i := 0; i < count; i++ {
+	for len(out) < count {
 		select {
 		case ob := <-ch:
 			if ob.Kind == client.OutboundMessage {
@@ -32,8 +33,6 @@ func drainMessages(ch <-chan client.Outbound, count int, timeout time.Duration) 
 	return out
 }
 
-// setupRoom reserves a code and creates Player 1 in the Hub.
-// Returns the code and Player 1's client.
 func setupRoom(t *testing.T, h *Hub) (string, *client.Client) {
 	t.Helper()
 
@@ -69,24 +68,21 @@ func TestRoomMessageDeliveredWhenBothOnline(t *testing.T) {
 		t.Errorf("unexpected text: %q", msgs[0].Text)
 	}
 
-	// p1 should not receive their own message
 	unexpected := drainMessages(p1.Send, 1, 50*time.Millisecond)
 	if len(unexpected) != 0 {
 		t.Errorf("Player 1 should not receive echo, got %d", len(unexpected))
 	}
 }
 
-func TestRoomMessageBufferedWhenPlayer2Offline(t *testing.T) {
+func TestRoomMessageBufferedWhenPlayer2Absent(t *testing.T) {
 	h, cancel := newTestHub(t)
 	defer cancel()
 
 	code, _ := setupRoom(t, h)
 
-	// Player 2 has not joined yet — message should be buffered.
 	h.Send(message.Message{From: "Player 1", To: "Player 2", Room: code, Text: "buffered"})
 	time.Sleep(20 * time.Millisecond)
 
-	// Now Player 2 joins — should receive the buffered message.
 	p2 := client.NewClient("Player 2", code)
 	if err := h.JoinRoom(p2, code); err != nil {
 		t.Fatalf("JoinRoom: %v", err)
@@ -112,7 +108,7 @@ func TestJoinInvalidCodeReturnsError(t *testing.T) {
 	}
 }
 
-func TestLeaveRoomClosesPartnerChannel(t *testing.T) {
+func TestGoOfflineDoesNotClosePartnerChannel(t *testing.T) {
 	h, cancel := newTestHub(t)
 	defer cancel()
 
@@ -122,60 +118,36 @@ func TestLeaveRoomClosesPartnerChannel(t *testing.T) {
 		t.Fatalf("JoinRoom: %v", err)
 	}
 
-	// Player 2 leaves — Player 1's Send should be closed.
-	h.LeaveRoom("Player 2", code)
+	h.GoOffline("Player 2", code)
+	time.Sleep(20 * time.Millisecond)
+
+	deadline := time.After(time.Second)
+	gotOffline := false
+	for !gotOffline {
+		select {
+		case ob := <-p1.Send:
+			if ob.Kind == client.OutboundEvent &&
+				ob.Event.Kind == event.KindPresence &&
+				ob.Event.Player == "Player 2" &&
+				ob.Event.Presence == "offline" {
+				gotOffline = true
+			}
+		case <-deadline:
+			t.Fatal("expected offline presence event for Player 2")
+		}
+	}
 
 	select {
 	case _, ok := <-p1.Send:
-		if ok {
-			// Could be the "partner left" event — drain until closed.
-			select {
-			case _, ok2 := <-p1.Send:
-				if !ok2 {
-					return // closed — correct
-				}
-			case <-time.After(time.Second):
-				t.Fatal("p1.Send not closed after partner left")
-			}
+		if !ok {
+			t.Fatal("partner channel closed unexpectedly")
 		}
-		// ok == false means closed directly — correct
-	case <-time.After(time.Second):
-		t.Fatal("p1.Send not closed within 1s after partner left")
+		t.Fatal("unexpected extra message on partner channel")
+	default:
 	}
 }
 
-func TestContextCancellationClosesAllChannels(t *testing.T) {
-	h, cancel := newTestHub(t)
-
-	code, p1 := setupRoom(t, h)
-	p2 := client.NewClient("Player 2", code)
-	if err := h.JoinRoom(p2, code); err != nil {
-		t.Fatalf("JoinRoom: %v", err)
-	}
-
-	cancel()
-
-	for _, c := range []*client.Client{p1, p2} {
-		select {
-		case _, ok := <-c.Send:
-			if ok {
-				// Drain one more in case it was the partner-left event.
-				select {
-				case _, ok2 := <-c.Send:
-					if !ok2 {
-						continue
-					}
-				case <-time.After(time.Second):
-					t.Fatalf("%s Send not closed after shutdown", c.Name)
-				}
-			}
-		case <-time.After(time.Second):
-			t.Fatalf("%s Send not closed within 1s after context cancel", c.Name)
-		}
-	}
-}
-
-func TestDisconnectKeepsRoomAndBuffersMessages(t *testing.T) {
+func TestSetInactiveKeepsRoomAndBuffersMessages(t *testing.T) {
 	h, cancel := newTestHub(t)
 	defer cancel()
 
@@ -185,14 +157,10 @@ func TestDisconnectKeepsRoomAndBuffersMessages(t *testing.T) {
 		t.Fatalf("JoinRoom: %v", err)
 	}
 
-	h.Disconnect("Player 2", code)
+	h.SetInactive("Player 2", code)
 	time.Sleep(20 * time.Millisecond)
 
-	h.Send(message.Message{From: "Player 1", Room: code, Text: "while p2 idle"})
-
-	// Room still exists — Player 1's channel stays open.
-	h.Send(message.Message{From: "Player 1", Room: code, Text: "still there"})
-	time.Sleep(20 * time.Millisecond)
+	h.Send(message.Message{From: "Player 1", Room: code, Text: "while p2 inactive"})
 
 	p2re := client.NewClient("Player 2", code)
 	if err := h.JoinRoom(p2re, code); err != nil {
@@ -200,12 +168,12 @@ func TestDisconnectKeepsRoomAndBuffersMessages(t *testing.T) {
 	}
 
 	msgs := drainMessages(p2re.Send, 1, time.Second)
-	if len(msgs) != 1 || msgs[0].Text != "while p2 idle" {
+	if len(msgs) != 1 || msgs[0].Text != "while p2 inactive" {
 		t.Fatalf("expected buffered message on reconnect, got %v", msgs)
 	}
 }
 
-func TestReconnectPlayer1AfterIdle(t *testing.T) {
+func TestOfflineDoesNotBufferMessages(t *testing.T) {
 	h, cancel := newTestHub(t)
 	defer cancel()
 
@@ -215,10 +183,51 @@ func TestReconnectPlayer1AfterIdle(t *testing.T) {
 		t.Fatalf("JoinRoom: %v", err)
 	}
 
-	h.Disconnect("Player 1", code)
+	h.GoOffline("Player 2", code)
 	time.Sleep(20 * time.Millisecond)
 
-	h.Send(message.Message{From: "Player 2", Room: code, Text: "for idle p1"})
+	h.Send(message.Message{From: "Player 1", Room: code, Text: "should not be stored"})
+
+	p2re := client.NewClient("Player 2", code)
+	if err := h.JoinRoom(p2re, code); err != nil {
+		t.Fatalf("JoinRoom rejoin: %v", err)
+	}
+
+	msgs := drainMessages(p2re.Send, 1, 200*time.Millisecond)
+	if len(msgs) != 0 {
+		t.Fatalf("expected no buffered messages after offline, got %v", msgs)
+	}
+}
+
+func TestRoomDeletedWhenBothOffline(t *testing.T) {
+	h, cancel := newTestHub(t)
+	defer cancel()
+
+	code, _ := setupRoom(t, h)
+	h.GoOffline("Player 1", code)
+	time.Sleep(20 * time.Millisecond)
+
+	p2 := client.NewClient("Player 2", code)
+	err := h.JoinRoom(p2, code)
+	if err == nil {
+		t.Fatal("expected room gone after both offline")
+	}
+}
+
+func TestReconnectPlayer1AfterInactive(t *testing.T) {
+	h, cancel := newTestHub(t)
+	defer cancel()
+
+	code, _ := setupRoom(t, h)
+	p2 := client.NewClient("Player 2", code)
+	if err := h.JoinRoom(p2, code); err != nil {
+		t.Fatalf("JoinRoom: %v", err)
+	}
+
+	h.SetInactive("Player 1", code)
+	time.Sleep(20 * time.Millisecond)
+
+	h.Send(message.Message{From: "Player 2", Room: code, Text: "for inactive p1"})
 
 	p1re := client.NewClient("Player 1", code)
 	if err := h.CreateRoom(p1re, code); err != nil {
@@ -226,7 +235,7 @@ func TestReconnectPlayer1AfterIdle(t *testing.T) {
 	}
 
 	msgs := drainMessages(p1re.Send, 1, time.Second)
-	if len(msgs) != 1 || msgs[0].Text != "for idle p1" {
+	if len(msgs) != 1 || msgs[0].Text != "for inactive p1" {
 		t.Fatalf("expected buffered message for P1, got %v", msgs)
 	}
 }

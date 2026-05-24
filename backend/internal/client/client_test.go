@@ -92,16 +92,16 @@ func (h *mockHub) Send(m message.Message) {
 	h.sent = append(h.sent, m)
 }
 
-func (h *mockHub) Disconnect(name, code string) {
+func (h *mockHub) SetInactive(name, code string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.left = append(h.left, "disconnect:"+name+":"+code)
+	h.left = append(h.left, "inactive:"+name+":"+code)
 }
 
-func (h *mockHub) LeaveRoom(name, code string) {
+func (h *mockHub) GoOffline(name, code string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.left = append(h.left, "leave:"+name+":"+code)
+	h.left = append(h.left, "offline:"+name+":"+code)
 }
 
 func (h *mockHub) getSent() []message.Message {
@@ -201,12 +201,12 @@ func TestReadPumpCallsLeaveRoomOnClose(t *testing.T) {
 	c.ReadPump(ctx, conn, hub, nopEvent)
 
 	left := hub.getLeft()
-	if len(left) != 1 || left[0] != "disconnect:Player 1:ABC123" {
-		t.Errorf("expected Disconnect('Player 1', 'ABC123'), got %v", left)
+	if len(left) != 1 || left[0] != "offline:Player 1:ABC123" {
+		t.Errorf("expected GoOffline('Player 1', 'ABC123'), got %v", left)
 	}
 }
 
-func TestReadPumpCallsLeaveRoomOnUserLeft(t *testing.T) {
+func TestReadPumpCallsGoOfflineOnUserLeft(t *testing.T) {
 	conn := &mockConn{}
 	hub := &mockHub{}
 	c := NewClient("Player 1", "ABC123")
@@ -219,8 +219,26 @@ func TestReadPumpCallsLeaveRoomOnUserLeft(t *testing.T) {
 	c.ReadPump(ctx, conn, hub, nopEvent)
 
 	left := hub.getLeft()
-	if len(left) != 1 || left[0] != "leave:Player 1:ABC123" {
-		t.Errorf("expected LeaveRoom on user left, got %v", left)
+	if len(left) != 1 || left[0] != "offline:Player 1:ABC123" {
+		t.Errorf("expected GoOffline on user left, got %v", left)
+	}
+}
+
+func TestReadPumpCallsSetInactiveOnInactivityClose(t *testing.T) {
+	conn := &mockConn{}
+	hub := &mockHub{}
+	c := NewClient("Player 1", "ABC123")
+
+	conn.closeErr = &websocket.CloseError{Code: websocket.CloseNormalClosure, Text: "inactivity"}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	c.ReadPump(ctx, conn, hub, nopEvent)
+
+	left := hub.getLeft()
+	if len(left) != 1 || left[0] != "inactive:Player 1:ABC123" {
+		t.Errorf("expected SetInactive on inactivity, got %v", left)
 	}
 }
 

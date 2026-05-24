@@ -155,7 +155,7 @@ func eventFanout(ctx context.Context, h *hub.Hub) {
 		case <-ctx.Done():
 			return
 		case e := <-h.Events:
-			h.BroadcastEventAll(e)
+			h.BroadcastEvent(e)
 		}
 	}
 }

@@ -6,4 +6,5 @@ type Message struct {
 	To   string `json:"to"`
 	Room string `json:"room"`
 	TS   int64  `json:"ts"`
+	Ping bool   `json:"ping,omitempty"` // keepalive — not routed to the hub
 }

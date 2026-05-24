@@ -10,33 +10,60 @@ type Status int
 const (
 	StatusPending Status = iota
 	StatusActive
-	StatusClosed
 )
 
-type Room struct {
-	Code    string
-	Status  Status
-	Players [2]*client.Client // [0] = Player 1 (creator), [1] = Player 2 (joiner)
-	Pending []message.Message
-}
+// Presence is per-player connection state within a room.
+type Presence int
 
-// NewEmpty creates a reserved room with no players yet.
-// Player 1 is assigned when their WebSocket connects.
-func NewEmpty(code string) *Room {
-	return &Room{
-		Code:   code,
-		Status: StatusPending,
+const (
+	PresenceAbsent Presence = iota // slot empty, never joined this session
+	PresenceOnline
+	PresenceInactive // idle timeout — WS closed, messages buffered
+	PresenceOffline  // left or closed tab — no buffering
+)
+
+func (p Presence) String() string {
+	switch p {
+	case PresenceOnline:
+		return "online"
+	case PresenceInactive:
+		return "inactive"
+	case PresenceOffline:
+		return "offline"
+	default:
+		return "absent"
 	}
 }
 
-// Join assigns Player 2 and activates the room.
+type Room struct {
+	Code     string
+	Status   Status
+	Players  [2]*client.Client
+	Presence [2]Presence
+	Pending  []message.Message
+}
+
+func NewEmpty(code string) *Room {
+	return &Room{
+		Code:     code,
+		Status:   StatusPending,
+		Presence: [2]Presence{PresenceAbsent, PresenceAbsent},
+	}
+}
+
 func (r *Room) Join(joiner *client.Client) {
 	r.Players[1] = joiner
+	r.Presence[1] = PresenceOnline
 	r.Status = StatusActive
 }
 
-// Other returns the other player given one player's name. Returns nil if
-// the partner has not connected yet or has already left.
+func (r *Room) Index(name string) int {
+	if name == "Player 1" {
+		return 0
+	}
+	return 1
+}
+
 func (r *Room) Other(name string) *client.Client {
 	if r.Players[0] != nil && r.Players[0].Name == name {
 		return r.Players[1]
@@ -55,11 +82,47 @@ func Recipient(sender string) string {
 	return "Player 1"
 }
 
-// Remove clears the slot for the named player.
-func (r *Room) Remove(name string) {
-	for i, p := range r.Players {
-		if p != nil && p.Name == name {
-			r.Players[i] = nil
+func (r *Room) PresenceOf(name string) Presence {
+	return r.Presence[r.Index(name)]
+}
+
+func (r *Room) SetPresence(name string, p Presence) {
+	r.Presence[r.Index(name)] = p
+}
+
+func (r *Room) ClearSlot(name string) {
+	i := r.Index(name)
+	r.Players[i] = nil
+}
+
+// ShouldDelete reports whether the room can be removed from memory.
+// The room is kept while any player is online or inactive (may return soon).
+func (r *Room) ShouldDelete() bool {
+	for _, p := range r.Presence {
+		if p == PresenceOnline || p == PresenceInactive {
+			return false
 		}
+	}
+	return true
+}
+
+func (r *Room) PurgePendingFor(recipient string) {
+	kept := r.Pending[:0]
+	for _, m := range r.Pending {
+		if Recipient(m.From) != recipient {
+			kept = append(kept, m)
+		}
+	}
+	r.Pending = kept
+}
+
+func (r *Room) CanBufferFor(recipient string) bool {
+	switch r.PresenceOf(recipient) {
+	case PresenceOnline:
+		return false // delivered live when connected
+	case PresenceInactive, PresenceAbsent:
+		return true
+	default:
+		return false // offline
 	}
 }

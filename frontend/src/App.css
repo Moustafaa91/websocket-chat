@@ -261,10 +261,11 @@ body {
   transition: border-color 0.2s;
 }
 
-.chatbox--connected    { border-color: var(--success); }
+.chatbox--online       { border-color: var(--success); }
+.chatbox--inactive     { border-color: var(--warn); }
+.chatbox--offline      { border-color: var(--border); }
 .chatbox--connecting   { border-color: var(--border); }
-.chatbox--reconnecting { border-color: var(--warn); }
-.chatbox--waking       { border-color: var(--warn); }
+.chatbox--connected    { border-color: var(--success); }
 .chatbox--disconnected { border-color: var(--border); }
 
 .chatbox-header {
@@ -289,11 +290,12 @@ body {
   letter-spacing: 0.04em;
   margin-left: auto;
 }
-.chatbox-status--connected    { color: var(--success); }
-.chatbox-status--connecting   { color: var(--muted); }
-.chatbox-status--disconnected { color: var(--muted); }
-.chatbox-status--reconnecting { color: var(--warn); }
-.chatbox-status--waking       { color: var(--warn); }
+.chatbox-status--online       { color: var(--success); }
+.chatbox-status--inactive     { color: var(--warn); }
+.chatbox-status--offline       { color: var(--muted); }
+.chatbox-status--connecting    { color: var(--muted); }
+.chatbox-status--connected     { color: var(--success); }
+.chatbox-status--disconnected  { color: var(--muted); }
 
 .leave-btn {
   background: transparent;

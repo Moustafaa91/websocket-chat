@@ -24,8 +24,6 @@ const (
 	OutboundEvent
 )
 
-// Outbound is a tagged union — WritePump is the sole writer to the WebSocket,
-// so both messages and events flow through this single channel.
 type Outbound struct {
 	Kind    OutboundKind
 	Message message.Message
@@ -34,15 +32,14 @@ type Outbound struct {
 
 type Client struct {
 	Name string
-	Room string // room code this client belongs to
+	Room string
 	Send chan Outbound
 }
 
-// RoomSender is the subset of Hub that ReadPump needs.
 type RoomSender interface {
 	Send(m message.Message)
-	Disconnect(name, code string)
-	LeaveRoom(name, code string)
+	SetInactive(name, code string)
+	GoOffline(name, code string)
 }
 
 type Conn interface {
@@ -62,19 +59,24 @@ func NewClient(name, roomCode string) *Client {
 }
 
 func (c *Client) ReadPump(ctx context.Context, conn Conn, hub RoomSender, emitEvent func(level, msg string)) {
-	permanentLeave := false
+	inactiveClose := false
+	goOffline := false
 
 	defer func() {
-		if permanentLeave {
-			hub.LeaveRoom(c.Name, c.Room)
-		} else {
-			hub.Disconnect(c.Name, c.Room)
+		switch {
+		case inactiveClose:
+			hub.SetInactive(c.Name, c.Room)
+		case goOffline:
+			hub.GoOffline(c.Name, c.Room)
+		default:
+			hub.GoOffline(c.Name, c.Room)
 		}
 		conn.Close()
 	}()
 
 	timer := time.AfterFunc(inactivityTimeout, func() {
 		emitEvent("warn", c.Name+" timed out (inactivity)")
+		inactiveClose = true
 		conn.Close()
 	})
 	defer timer.Stop()
@@ -89,8 +91,13 @@ func (c *Client) ReadPump(ctx context.Context, conn Conn, hub RoomSender, emitEv
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			var closeErr *websocket.CloseError
-			if errors.As(err, &closeErr) && closeErr.Text == "user left" {
-				permanentLeave = true
+			if errors.As(err, &closeErr) {
+				switch closeErr.Text {
+				case "user left", "offline":
+					goOffline = true
+				case "inactivity":
+					inactiveClose = true
+				}
 			} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 				emitEvent("error", c.Name+" read error: "+err.Error())
 			}
@@ -107,7 +114,10 @@ func (c *Client) ReadPump(ctx context.Context, conn Conn, hub RoomSender, emitEv
 			continue
 		}
 
-		// Enforce identity and room — client cannot spoof either.
+		if m.Ping {
+			continue
+		}
+
 		m.From = c.Name
 		m.Room = c.Room
 
