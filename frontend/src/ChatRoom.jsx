@@ -56,8 +56,18 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
 
   // ── WebSocket setup ──────────────────────────────────────────────────────────
 
+  const endSession = useCallback((reason) => {
+    clearTimeout(inactivityTimerRef.current)
+    clearTimeout(reconnectTimerRef.current)
+    if (wsRef.current) {
+      wsRef.current.close(1000, reason)
+      wsRef.current = null
+    }
+    onEnd(reason)
+  }, [onEnd])
+
   // attachHandlers wires onmessage / onclose / onerror onto any WebSocket
-  // instance — used for both the handed-off Player 1 WS and fresh connections.
+  // instance — used for both the handed-off WS and fresh connections.
   const attachHandlers = useCallback((ws, connectFn) => {
     ws.onmessage = (e) => {
       if (isUnmountedRef.current) return
@@ -65,12 +75,15 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
         const msg = JSON.parse(e.data)
         if (msg.level) {
           addEvent(msg.message, msg.level)
-          if (msg.message.includes('Player 2 joined')) {
+          if (msg.message.includes('Player 2 joined') || msg.message.includes('is back online')) {
             setPartnerOnline(true)
+          }
+          if (msg.message.includes('partner is idle')) {
+            setPartnerOnline(false)
           }
           if (msg.message.includes('partner left')) {
             setPartnerOnline(false)
-            onEnd('Your partner left the chat')
+            endSession('Your partner left the chat')
           }
         } else {
           setMessages(prev => [...prev, msg])
@@ -83,9 +96,17 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
     ws.onclose = (e) => {
       wsRef.current = null
       if (isUnmountedRef.current) return
-      // 1000 = clean close (inactivity or user left) — do not auto-reconnect.
+      // 1008 = server rejected join/create (invalid or expired code).
+      if (e.code === 1008) {
+        setStatus('disconnected')
+        onEnd(e.reason || 'Could not join room — invalid or expired code')
+        return
+      }
+      // 1000 = clean close — only "user left" ends the session; inactivity stays in room.
       if (e.code === 1000) {
         setStatus('disconnected')
+        if (e.reason === 'user left') return
+        addEvent(`${playerName} idle — click the chat to reconnect`, 'warn')
         return
       }
       // 1001 = server-side close (inactivity timeout from backend) — reconnect.
@@ -94,7 +115,7 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
     }
 
     ws.onerror = () => addEvent(`${playerName} WebSocket error`, 'error')
-  }, [playerName, addEvent, scheduleReconnect, onEnd])
+  }, [playerName, addEvent, scheduleReconnect, endSession, onEnd])
 
   const connect = useCallback(() => {
     if (wsRef.current) return
@@ -118,16 +139,15 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
     isUnmountedRef.current = false
 
     if (existingWs) {
-      // Player 1: adopt the WebSocket opened in WaitingScreen.
+      // Adopt the WebSocket opened in WaitingScreen / JoiningScreen.
       wsRef.current = existingWs
-      // The socket is already open — set status immediately.
       if (existingWs.readyState === WebSocket.OPEN) {
         setStatus('connected')
         resetInactivityTimer()
+        if (playerNum === 2) setPartnerOnline(true)
       }
       attachHandlers(existingWs, connect)
     } else {
-      // Player 2: open a fresh connection.
       connect()
     }
 
@@ -135,10 +155,8 @@ export default function ChatRoom({ roomCode, playerNum, existingWs, addEvent, on
       isUnmountedRef.current = true
       clearTimeout(inactivityTimerRef.current)
       clearTimeout(reconnectTimerRef.current)
-      if (wsRef.current) {
-        wsRef.current.close(1000, 'unmount')
-        wsRef.current = null
-      }
+      // Do not close the WebSocket here — React Strict Mode remounts this
+      // component in dev, which would tear down the room. App closes on leave.
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
   // Intentionally empty deps — we only want this to run once on mount.

@@ -47,6 +47,14 @@ func (r *Room) Other(name string) *client.Client {
 	return nil
 }
 
+// Recipient returns the player name who should receive a message from sender.
+func Recipient(sender string) string {
+	if sender == "Player 1" {
+		return "Player 2"
+	}
+	return "Player 1"
+}
+
 // Remove clears the slot for the named player.
 func (r *Room) Remove(name string) {
 	for i, p := range r.Players {

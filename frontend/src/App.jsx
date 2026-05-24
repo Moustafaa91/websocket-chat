@@ -13,7 +13,7 @@ const getInitialTheme = () => {
 const API_URL = import.meta.env.VITE_API_URL
 
 export default function App() {
-  const [screen, setScreen]     = useState('home')   // 'home' | 'waiting' | 'chat'
+  const [screen, setScreen]     = useState('home')   // 'home' | 'waiting' | 'joining' | 'chat'
   const [roomCode, setRoomCode] = useState('')
   const [playerNum, setPlayerNum] = useState(null)   // 1 | 2
   const [joinInput, setJoinInput] = useState('')
@@ -21,9 +21,10 @@ export default function App() {
   const [events, setEvents]     = useState([])
   const [theme, setTheme]       = useState(getInitialTheme)
 
-  // Player 1's WebSocket is hoisted here so it survives the
-  // waiting → chat screen transition without closing.
-  const p1WsRef = useRef(null)
+  // Live WebSocket survives waiting/joining → chat transitions.
+  const roomWsRef = useRef(null)
+  // Prevents a second WS when React Strict Mode remounts waiting/joining screens.
+  const wsConnectStartedRef = useRef(false)
 
   const counterRef = useRef(0)
 
@@ -56,6 +57,7 @@ export default function App() {
       const { code } = await res.json()
       setRoomCode(code)
       setPlayerNum(1)
+      wsConnectStartedRef.current = false
       setScreen('waiting')
       addEvent(`Room ${code} created — share the code with your friend`, 'success')
     } catch (err) {
@@ -64,11 +66,11 @@ export default function App() {
   }, [addEvent])
 
   const handleCancelWaiting = useCallback(() => {
-    // Close Player 1's WebSocket if it was opened.
-    if (p1WsRef.current) {
-      p1WsRef.current.close(1000, 'cancelled')
-      p1WsRef.current = null
+    if (roomWsRef.current) {
+      roomWsRef.current.close(1000, 'cancelled')
+      roomWsRef.current = null
     }
+    wsConnectStartedRef.current = false
     setRoomCode('')
     setPlayerNum(null)
     setScreen('home')
@@ -77,7 +79,7 @@ export default function App() {
 
   // Called by WaitingScreen once Player 1's WS opens successfully.
   const handlePlayer1Ready = useCallback((ws, code) => {
-    p1WsRef.current = ws
+    roomWsRef.current = ws
     setScreen('chat')
     addEvent(`Connected to room ${code} — waiting for Player 2`, 'info')
   }, [addEvent])
@@ -93,14 +95,35 @@ export default function App() {
     setJoinError('')
     setRoomCode(code)
     setPlayerNum(2)
-    setScreen('chat')
+    wsConnectStartedRef.current = false
+    setScreen('joining')
     addEvent(`Joining room ${code}…`, 'info')
   }, [joinInput, addEvent])
+
+  const handleJoinSuccess = useCallback((ws, code) => {
+    roomWsRef.current = ws
+    setScreen('chat')
+    addEvent(`Joined room ${code}`, 'success')
+  }, [addEvent])
+
+  const handleJoinFailure = useCallback((message) => {
+    if (roomWsRef.current) {
+      roomWsRef.current.close(1000, 'join failed')
+      roomWsRef.current = null
+    }
+    wsConnectStartedRef.current = false
+    setJoinError(message)
+    setScreen('home')
+    setRoomCode('')
+    setPlayerNum(null)
+    addEvent(message, 'error')
+  }, [addEvent])
 
   // ── Chat ended ───────────────────────────────────────────────────────────────
 
   const handleChatEnd = useCallback((reason) => {
-    p1WsRef.current = null  // ChatRoom will have closed it
+    roomWsRef.current = null
+    wsConnectStartedRef.current = false
     addEvent(reason || 'Chat ended', 'warn')
     setScreen('home')
     setRoomCode('')
@@ -135,16 +158,27 @@ export default function App() {
           {screen === 'waiting' && (
             <WaitingScreen
               code={roomCode}
+              connectStartedRef={wsConnectStartedRef}
+              roomWsRef={roomWsRef}
               onCancel={handleCancelWaiting}
               onReady={handlePlayer1Ready}
               addEvent={addEvent}
+            />
+          )}
+          {screen === 'joining' && (
+            <JoiningScreen
+              code={roomCode}
+              connectStartedRef={wsConnectStartedRef}
+              roomWsRef={roomWsRef}
+              onSuccess={handleJoinSuccess}
+              onFailure={handleJoinFailure}
             />
           )}
           {screen === 'chat' && (
             <ChatRoom
               roomCode={roomCode}
               playerNum={playerNum}
-              existingWs={playerNum === 1 ? p1WsRef.current : null}
+              existingWs={roomWsRef.current}
               addEvent={addEvent}
               onEnd={handleChatEnd}
             />
@@ -194,23 +228,77 @@ function HomeScreen({ joinInput, joinError, onJoinInputChange, onJoinSubmit, onC
   )
 }
 
-// ── WaitingScreen ─────────────────────────────────────────────────────────────
-// Opens Player 1's WebSocket and passes it up to App via onReady so it
-// survives the transition to ChatRoom without closing.
+// ── JoiningScreen ─────────────────────────────────────────────────────────────
+// Opens Player 2's WebSocket and validates the room code before entering chat.
 
-function WaitingScreen({ code, onCancel, onReady, addEvent }) {
-  const wsRef = useRef(null)
+function JoiningScreen({ code, connectStartedRef, roomWsRef, onSuccess, onFailure }) {
   const firedRef = useRef(false)
   const WS_URL = import.meta.env.VITE_WS_URL
 
   useEffect(() => {
-    const ws = new WebSocket(`${WS_URL}/ws?room=${code}&player=1`)
-    wsRef.current = ws
+    if (roomWsRef.current?.readyState === WebSocket.OPEN) {
+      onSuccess(roomWsRef.current, code)
+      return
+    }
+    if (connectStartedRef.current) return
+    connectStartedRef.current = true
+
+    const ws = new WebSocket(`${WS_URL}/ws?room=${code}&player=2`)
 
     ws.onopen = () => {
       if (!firedRef.current) {
         firedRef.current = true
-        // Hand the live WebSocket up to App before this component unmounts.
+        onSuccess(ws, code)
+      }
+    }
+
+    ws.onerror = () => {
+      if (!firedRef.current) {
+        connectStartedRef.current = false
+        onFailure('Could not connect — check your connection and try again')
+      }
+    }
+
+    ws.onclose = (e) => {
+      if (!firedRef.current) {
+        connectStartedRef.current = false
+        const msg = e.reason || 'Invalid or expired room code'
+        onFailure(msg)
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="home-screen">
+      <div className="home-card">
+        <h2 className="home-title">Joining room</h2>
+        <p className="home-desc">Connecting with code <span className="room-code-inline">{code}</span>…</p>
+      </div>
+    </div>
+  )
+}
+
+// ── WaitingScreen ─────────────────────────────────────────────────────────────
+// Opens Player 1's WebSocket and passes it up to App via onReady so it
+// survives the transition to ChatRoom without closing.
+
+function WaitingScreen({ code, connectStartedRef, roomWsRef, onCancel, onReady, addEvent }) {
+  const firedRef = useRef(false)
+  const WS_URL = import.meta.env.VITE_WS_URL
+
+  useEffect(() => {
+    if (roomWsRef.current?.readyState === WebSocket.OPEN) {
+      onReady(roomWsRef.current, code)
+      return
+    }
+    if (connectStartedRef.current) return
+    connectStartedRef.current = true
+
+    const ws = new WebSocket(`${WS_URL}/ws?room=${code}&player=1`)
+
+    ws.onopen = () => {
+      if (!firedRef.current) {
+        firedRef.current = true
         onReady(ws, code)
       }
     }
@@ -220,7 +308,6 @@ function WaitingScreen({ code, onCancel, onReady, addEvent }) {
     }
 
     // No cleanup close here — App owns the WS from onReady onwards.
-    // If the user cancels, App.handleCancelWaiting closes it explicitly.
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

@@ -92,10 +92,16 @@ func (h *mockHub) Send(m message.Message) {
 	h.sent = append(h.sent, m)
 }
 
+func (h *mockHub) Disconnect(name, code string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.left = append(h.left, "disconnect:"+name+":"+code)
+}
+
 func (h *mockHub) LeaveRoom(name, code string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.left = append(h.left, name+":"+code)
+	h.left = append(h.left, "leave:"+name+":"+code)
 }
 
 func (h *mockHub) getSent() []message.Message {
@@ -195,8 +201,26 @@ func TestReadPumpCallsLeaveRoomOnClose(t *testing.T) {
 	c.ReadPump(ctx, conn, hub, nopEvent)
 
 	left := hub.getLeft()
-	if len(left) != 1 || left[0] != "Player 1:ABC123" {
-		t.Errorf("expected LeaveRoom('Player 1', 'ABC123'), got %v", left)
+	if len(left) != 1 || left[0] != "disconnect:Player 1:ABC123" {
+		t.Errorf("expected Disconnect('Player 1', 'ABC123'), got %v", left)
+	}
+}
+
+func TestReadPumpCallsLeaveRoomOnUserLeft(t *testing.T) {
+	conn := &mockConn{}
+	hub := &mockHub{}
+	c := NewClient("Player 1", "ABC123")
+
+	conn.closeErr = &websocket.CloseError{Code: websocket.CloseNormalClosure, Text: "user left"}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	c.ReadPump(ctx, conn, hub, nopEvent)
+
+	left := hub.getLeft()
+	if len(left) != 1 || left[0] != "leave:Player 1:ABC123" {
+		t.Errorf("expected LeaveRoom on user left, got %v", left)
 	}
 }
 

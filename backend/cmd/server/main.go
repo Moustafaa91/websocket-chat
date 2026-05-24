@@ -129,7 +129,7 @@ func wsHandler(ctx context.Context, h *hub.Hub) http.HandlerFunc {
 			if err := h.CreateRoom(c, code); err != nil {
 				log.Printf("CreateRoom error for %s: %v", code, err)
 				_ = conn.WriteMessage(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseNormalClosure, err.Error()))
+					websocket.FormatCloseMessage(websocket.ClosePolicyViolation, err.Error()))
 				conn.Close()
 				return
 			}
@@ -137,7 +137,7 @@ func wsHandler(ctx context.Context, h *hub.Hub) http.HandlerFunc {
 			if err := h.JoinRoom(c, code); err != nil {
 				log.Printf("JoinRoom error for %s: %v", code, err)
 				_ = conn.WriteMessage(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseNormalClosure, err.Error()))
+					websocket.FormatCloseMessage(websocket.ClosePolicyViolation, err.Error()))
 				conn.Close()
 				return
 			}

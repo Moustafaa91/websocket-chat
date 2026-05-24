@@ -16,7 +16,8 @@ const (
 	kindReserveCode roomEventKind = iota // POST /rooms — reserve a code, no client yet
 	kindCreateRoom                       // Player 1 WebSocket connects
 	kindJoinRoom                         // Player 2 WebSocket connects
-	kindLeaveRoom                        // a player disconnects
+	kindDisconnect                       // idle / connection lost — keep room
+	kindLeaveRoom                        // explicit leave — close room
 	kindMessage                          // chat message
 )
 
@@ -74,7 +75,12 @@ func (h *Hub) JoinRoom(c *client.Client, code string) error {
 	return r.err
 }
 
-// LeaveRoom removes a client from their room. Fire and forget.
+// Disconnect clears a player's slot but keeps the room (inactivity / reconnect).
+func (h *Hub) Disconnect(name, code string) {
+	h.events <- roomEvent{kind: kindDisconnect, client: &client.Client{Name: name}, code: code}
+}
+
+// LeaveRoom permanently closes the room. Fire and forget.
 func (h *Hub) LeaveRoom(name, code string) {
 	h.events <- roomEvent{kind: kindLeaveRoom, client: &client.Client{Name: name}, code: code}
 }
@@ -115,6 +121,8 @@ func (h *Hub) Run(ctx context.Context) {
 				h.handleCreateRoom(e)
 			case kindJoinRoom:
 				h.handleJoinRoom(e)
+			case kindDisconnect:
+				h.handleDisconnect(e)
 			case kindLeaveRoom:
 				h.handleLeave(e)
 			case kindMessage:
@@ -153,13 +161,31 @@ func (h *Hub) handleCreateRoom(e roomEvent) {
 		e.reply <- roomReply{err: fmt.Errorf("room %s not found — code may have expired", e.code)}
 		return
 	}
-	if r.Status != room.StatusPending {
-		e.reply <- roomReply{err: fmt.Errorf("room %s is no longer available", e.code)}
+
+	switch r.Status {
+	case room.StatusActive:
+		if r.Players[0] != nil {
+			e.reply <- roomReply{err: fmt.Errorf("room %s already has Player 1 connected", e.code)}
+			return
+		}
+		r.Players[0] = e.client
+		h.flushPendingFor(r, e.client)
+		h.logEvent(event.LevelSuccess, fmt.Sprintf("Player 1 reconnected to room %s", e.code))
+		if r.Players[1] != nil {
+			h.notifyPartnerBack(r, "Player 1")
+		}
+		e.reply <- roomReply{}
 		return
+
+	case room.StatusPending:
+		r.Players[0] = e.client
+		h.logEvent(event.LevelSuccess, fmt.Sprintf("Player 1 joined room %s — waiting for Player 2", e.code))
+		e.reply <- roomReply{}
+		return
+
+	default:
+		e.reply <- roomReply{err: fmt.Errorf("room %s is closed", e.code)}
 	}
-	r.Players[0] = e.client
-	h.logEvent(event.LevelSuccess, fmt.Sprintf("Player 1 joined room %s — waiting for Player 2", e.code))
-	e.reply <- roomReply{}
 }
 
 func (h *Hub) handleJoinRoom(e roomEvent) {
@@ -168,36 +194,93 @@ func (h *Hub) handleJoinRoom(e roomEvent) {
 		e.reply <- roomReply{err: fmt.Errorf("room %s not found — invalid or expired code", e.code)}
 		return
 	}
-	if r.Status != room.StatusPending {
-		e.reply <- roomReply{err: fmt.Errorf("room %s is already full or closed", e.code)}
+
+	switch r.Status {
+	case room.StatusActive:
+		if r.Players[1] != nil {
+			e.reply <- roomReply{err: fmt.Errorf("room %s already has Player 2 connected", e.code)}
+			return
+		}
+		r.Players[1] = e.client
+		h.flushPendingFor(r, e.client)
+		h.logEvent(event.LevelSuccess, fmt.Sprintf("Player 2 reconnected to room %s", e.code))
+		if r.Players[0] != nil {
+			h.notifyPartnerBack(r, "Player 2")
+		}
+		e.reply <- roomReply{}
+		return
+
+	case room.StatusPending:
+		r.Join(e.client)
+		h.logEvent(event.LevelSuccess, fmt.Sprintf("room %s is now active", e.code))
+		h.flushPendingFor(r, e.client)
+
+		if r.Players[0] != nil {
+			notify := event.New(event.LevelSuccess, "Player 2 joined — you can start chatting!")
+			select {
+			case r.Players[0].Send <- client.Outbound{Kind: client.OutboundEvent, Event: notify}:
+			default:
+			}
+		}
+		e.reply <- roomReply{}
+		return
+
+	default:
+		e.reply <- roomReply{err: fmt.Errorf("room %s is closed", e.code)}
+	}
+}
+
+func (h *Hub) handleDisconnect(e roomEvent) {
+	r, ok := h.rooms[e.code]
+	if !ok {
 		return
 	}
 
-	r.Join(e.client)
-	h.logEvent(event.LevelSuccess, fmt.Sprintf("room %s is now active", e.code))
+	other := r.Other(e.client.Name)
+	r.Remove(e.client.Name)
 
-	// Flush messages buffered before Player 2 arrived.
+	if other != nil {
+		notify := event.New(event.LevelWarn, "Your partner is idle — messages will be delivered when they return")
+		select {
+		case other.Send <- client.Outbound{Kind: client.OutboundEvent, Event: notify}:
+		default:
+		}
+	}
+
+	h.logEvent(event.LevelInfo, fmt.Sprintf("%s disconnected from room %s (idle)", e.client.Name, e.code))
+}
+
+func (h *Hub) flushPendingFor(r *room.Room, c *client.Client) {
+	var kept []message.Message
+	delivered := 0
 	for _, m := range r.Pending {
-		select {
-		case e.client.Send <- client.Outbound{Kind: client.OutboundMessage, Message: m}:
-		default:
+		if room.Recipient(m.From) == c.Name {
+			select {
+			case c.Send <- client.Outbound{Kind: client.OutboundMessage, Message: m}:
+				delivered++
+			default:
+				kept = append(kept, m)
+			}
+		} else {
+			kept = append(kept, m)
 		}
 	}
-	if len(r.Pending) > 0 {
-		h.logEvent(event.LevelInfo, fmt.Sprintf("delivered %d buffered message(s) in room %s", len(r.Pending), e.code))
-		r.Pending = nil
+	r.Pending = kept
+	if delivered > 0 {
+		h.logEvent(event.LevelInfo, fmt.Sprintf("delivered %d buffered message(s) to %s in room %s", delivered, c.Name, r.Code))
 	}
+}
 
-	// Notify Player 1 their partner arrived.
-	if r.Players[0] != nil {
-		notify := event.New(event.LevelSuccess, "Player 2 joined — you can start chatting!")
-		select {
-		case r.Players[0].Send <- client.Outbound{Kind: client.OutboundEvent, Event: notify}:
-		default:
-		}
+func (h *Hub) notifyPartnerBack(r *room.Room, back string) {
+	other := r.Other(back)
+	if other == nil {
+		return
 	}
-
-	e.reply <- roomReply{}
+	notify := event.New(event.LevelSuccess, back+" is back online")
+	select {
+	case other.Send <- client.Outbound{Kind: client.OutboundEvent, Event: notify}:
+	default:
+	}
 }
 
 func (h *Hub) handleLeave(e roomEvent) {

@@ -5,6 +5,7 @@ import (
 	"backend/internal/message"
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -40,6 +41,7 @@ type Client struct {
 // RoomSender is the subset of Hub that ReadPump needs.
 type RoomSender interface {
 	Send(m message.Message)
+	Disconnect(name, code string)
 	LeaveRoom(name, code string)
 }
 
@@ -60,8 +62,14 @@ func NewClient(name, roomCode string) *Client {
 }
 
 func (c *Client) ReadPump(ctx context.Context, conn Conn, hub RoomSender, emitEvent func(level, msg string)) {
+	permanentLeave := false
+
 	defer func() {
-		hub.LeaveRoom(c.Name, c.Room)
+		if permanentLeave {
+			hub.LeaveRoom(c.Name, c.Room)
+		} else {
+			hub.Disconnect(c.Name, c.Room)
+		}
 		conn.Close()
 	}()
 
@@ -80,7 +88,10 @@ func (c *Client) ReadPump(ctx context.Context, conn Conn, hub RoomSender, emitEv
 
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
-			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+			var closeErr *websocket.CloseError
+			if errors.As(err, &closeErr) && closeErr.Text == "user left" {
+				permanentLeave = true
+			} else if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 				emitEvent("error", c.Name+" read error: "+err.Error())
 			}
 			return

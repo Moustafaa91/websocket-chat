@@ -175,6 +175,62 @@ func TestContextCancellationClosesAllChannels(t *testing.T) {
 	}
 }
 
+func TestDisconnectKeepsRoomAndBuffersMessages(t *testing.T) {
+	h, cancel := newTestHub(t)
+	defer cancel()
+
+	code, _ := setupRoom(t, h)
+	p2 := client.NewClient("Player 2", code)
+	if err := h.JoinRoom(p2, code); err != nil {
+		t.Fatalf("JoinRoom: %v", err)
+	}
+
+	h.Disconnect("Player 2", code)
+	time.Sleep(20 * time.Millisecond)
+
+	h.Send(message.Message{From: "Player 1", Room: code, Text: "while p2 idle"})
+
+	// Room still exists — Player 1's channel stays open.
+	h.Send(message.Message{From: "Player 1", Room: code, Text: "still there"})
+	time.Sleep(20 * time.Millisecond)
+
+	p2re := client.NewClient("Player 2", code)
+	if err := h.JoinRoom(p2re, code); err != nil {
+		t.Fatalf("JoinRoom reconnect: %v", err)
+	}
+
+	msgs := drainMessages(p2re.Send, 1, time.Second)
+	if len(msgs) != 1 || msgs[0].Text != "while p2 idle" {
+		t.Fatalf("expected buffered message on reconnect, got %v", msgs)
+	}
+}
+
+func TestReconnectPlayer1AfterIdle(t *testing.T) {
+	h, cancel := newTestHub(t)
+	defer cancel()
+
+	code, _ := setupRoom(t, h)
+	p2 := client.NewClient("Player 2", code)
+	if err := h.JoinRoom(p2, code); err != nil {
+		t.Fatalf("JoinRoom: %v", err)
+	}
+
+	h.Disconnect("Player 1", code)
+	time.Sleep(20 * time.Millisecond)
+
+	h.Send(message.Message{From: "Player 2", Room: code, Text: "for idle p1"})
+
+	p1re := client.NewClient("Player 1", code)
+	if err := h.CreateRoom(p1re, code); err != nil {
+		t.Fatalf("CreateRoom reconnect: %v", err)
+	}
+
+	msgs := drainMessages(p1re.Send, 1, time.Second)
+	if len(msgs) != 1 || msgs[0].Text != "for idle p1" {
+		t.Fatalf("expected buffered message for P1, got %v", msgs)
+	}
+}
+
 func TestReserveCodeIsUnique(t *testing.T) {
 	h, cancel := newTestHub(t)
 	defer cancel()
