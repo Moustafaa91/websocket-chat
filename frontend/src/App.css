@@ -285,6 +285,18 @@ body {
   letter-spacing: -0.01em;
 }
 
+.chatbox-room,
+.chatbox-partner {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+
+.home-desc--hint {
+  font-size: 12px;
+  margin-top: 0.5rem;
+}
+
 .chatbox-status {
   font-size: 11px;
   letter-spacing: 0.04em;

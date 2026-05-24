@@ -2,9 +2,9 @@ import { useEffect, useRef } from 'react'
 
 const TYPE_LABEL = {
   success: '✓',
-  warn:    '⚠',
-  error:   '✕',
-  info:    '·',
+  warn: '⚠',
+  error: '✕',
+  info: '·',
 }
 
 export default function EventLog({ events }) {
@@ -14,9 +14,12 @@ export default function EventLog({ events }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [events])
 
-  const fmt = (id) => {
-    const d = new Date(id)
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  function formatTime(ts) {
+    return new Date(ts).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
   }
 
   return (
@@ -29,10 +32,10 @@ export default function EventLog({ events }) {
         {events.length === 0 && (
           <p className="eventlog-empty">waiting for events…</p>
         )}
-        {events.map((ev) => (
+        {events.map(ev => (
           <div key={ev.id} className={`event event--${ev.type}`}>
             <span className="event-icon">{TYPE_LABEL[ev.type] ?? '·'}</span>
-            <span className="event-time">{fmt(ev.time)}</span>
+            <span className="event-time">{formatTime(ev.time)}</span>
             <span className="event-msg">{ev.message}</span>
           </div>
         ))}
